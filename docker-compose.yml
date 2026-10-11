@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: sport-center-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sport_center
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - sport_center_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sport_center"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sport_center_pgdata:
+
