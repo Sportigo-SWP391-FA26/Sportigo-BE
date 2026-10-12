@@ -4,6 +4,7 @@ import {
   classSessionAttendanceRouter,
 } from './attendance.routes.js'
 import { planAssignmentRouter } from './plan-assignment.routes.js'
+import { progressAssessmentRouter } from './progress-assessment.routes.js'
 import { workoutPlanItemRouter } from './workout-plan-item.routes.js'
 import { workoutPlanRouter } from './workout-plan.routes.js'
 
@@ -15,3 +16,4 @@ trainingRouter.use('/attendance', attendanceRouter)
 trainingRouter.use('/workout-plans/:id/items', workoutPlanItemRouter)
 trainingRouter.use('/workout-plans', workoutPlanRouter)
 trainingRouter.use('/private-enrollments', planAssignmentRouter)
+trainingRouter.use('/progress-assessments', progressAssessmentRouter)

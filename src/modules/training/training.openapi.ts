@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js'
 import { markAttendanceSchema } from './attendance.schema.js'
 import { assignPlanSchema } from './plan-assignment.schema.js'
+import { createAssessmentSchema } from './progress-assessment.schema.js'
 import { BR_MESSAGES } from './training.common.js'
 import {
   createItemSchema,
@@ -148,6 +149,28 @@ const assignmentExample = {
     sport: { id: 1, name: 'Bơi lội' },
   },
   assignedBy: { id: 4, coachCode: 'COA-0004', displayName: 'Lê Văn Cường' },
+}
+
+const assessmentExample = {
+  id: 11,
+  assessmentDate: '2026-10-10',
+  score: '8.5',
+  metrics: { speed: 7, technique: 8 },
+  coachComment: 'Kỹ thuật thở tiến bộ rõ, cần tăng sức bền.',
+  recommendation: 'Bơi thêm 2 buổi sức bền mỗi tuần',
+  nextAssessmentDate: '2026-11-10',
+  createdAt: '2026-10-10T09:00:00.000Z',
+  member: memberExample,
+  coach: { id: 4, coachCode: 'COA-0004', displayName: 'Lê Văn Cường' },
+  context: {
+    type: 'PRIVATE_COURSE',
+    privateEnrollmentId: 15,
+    course: {
+      id: 2,
+      name: 'Bơi 1-1 12 buổi',
+      sport: { id: 1, name: 'Bơi lội' },
+    },
+  },
 }
 
 const duplicateItemOrder = error('Trùng tuần/buổi/thứ tự (BR-45)', {
@@ -572,6 +595,71 @@ export const trainingPaths = {
         '422': error('Giáo án sai môn hoặc chưa ACTIVE (BR-44)', {
           code: 'PLAN_NOT_ASSIGNABLE',
           message: BR_MESSAGES.BR44,
+        }),
+      },
+    },
+  },
+  '/progress-assessments': {
+    get: {
+      tags: ['Training – Đánh giá tiến độ'],
+      summary: 'FR-52: Danh sách đánh giá tiến độ (phân trang)',
+      description:
+        'COACH chỉ thấy các đánh giá do chính mình ghi; CENTER_MANAGER thấy tất cả. Sắp theo ngày đánh giá giảm dần.',
+      security,
+      parameters: [
+        queryParam('memberId', integerId, 'Lọc theo Member'),
+        ...pageParams,
+      ],
+      responses: {
+        '200': ok('Danh sách đánh giá', {
+          items: [assessmentExample],
+          page: 1,
+          pageSize: 20,
+          total: 1,
+        }),
+        ...authErrors,
+        '422': validationError,
+      },
+    },
+    post: {
+      tags: ['Training – Đánh giá tiến độ'],
+      summary: 'FR-52: Coach ghi đánh giá tiến độ cho học viên mình phụ trách',
+      description:
+        'Gửi đúng một ngữ cảnh: classRegistrationId (registration CONFIRMED thuộc lớp Coach phụ trách) ' +
+        'hoặc privateEnrollmentId (enrollment ACTIVE/COMPLETED của Coach). Ngữ cảnh phải thuộc memberId. ' +
+        'assessmentDate (YYYY-MM-DD) không được ở tương lai theo giờ trung tâm.',
+      security,
+      requestBody: jsonBody(createAssessmentSchema, {
+        memberId: 12,
+        privateEnrollmentId: 15,
+        assessmentDate: '2026-10-10',
+        coachComment: 'Kỹ thuật thở tiến bộ rõ, cần tăng sức bền.',
+        metrics: { speed: 7, technique: 8 },
+        score: 8.5,
+        recommendation: 'Bơi thêm 2 buổi sức bền mỗi tuần',
+        nextAssessmentDate: '2026-11-10',
+      }),
+      responses: {
+        '201': ok('Đã ghi đánh giá', assessmentExample),
+        '401': authErrors['401'],
+        '403': error(
+          'Sai role, hoặc Coach không phụ trách học viên/ngữ cảnh (BR-46)',
+          {
+            code: 'ASSESSMENT_CONTEXT_INVALID',
+            message: BR_MESSAGES.BR46,
+          },
+        ),
+        '422': error('Thiếu/thừa ngữ cảnh, ngày ở tương lai hoặc metrics sai', {
+          code: 'VALIDATION_ERROR',
+          message: 'Dữ liệu không hợp lệ',
+          details: {
+            formErrors: [],
+            fieldErrors: {
+              classRegistrationId: [
+                'Cần đúng một ngữ cảnh: classRegistrationId hoặc privateEnrollmentId',
+              ],
+            },
+          },
         }),
       },
     },
