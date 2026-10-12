@@ -161,6 +161,8 @@ Các commit dùng chung cho mọi FR:
 | `5cb829f` | Hạ tầng test |
 | `5d78e07` | Test middleware |
 | `b2c94d0` | Seed demo |
+| `72c2bb8` | Gộp `develop` (FR-01, FR-02) vào nhánh |
+| `6f0620d` | Đổi tên migration thành `20261012170000_training_module` để chạy sau migration FR-02; seed demo đặt `emailVerifiedAt` |
 
 Dữ liệu dùng chung của module nằm ở `training.common.ts` (thông báo BR, phân trang, transaction) và `training.openapi.ts` (Swagger).
 
@@ -179,7 +181,7 @@ Dữ liệu dùng chung của module nằm ở `training.common.ts` (thông báo
 
 **Nhóm cần quyết định:**
 - **BR-30 ↔ FR-47:** BR-30 liệt kê FR-47 (trừ `remainingSessions` khi hoàn thành buổi 1-1). Nhưng schema không có bảng lưu từng buổi 1-1 (chỉ có lịch tuần `PrivateCourseSchedule`), nên FR-47 chỉ điểm danh lớp nhóm và chưa trừ buổi 1-1. Cần quyết định ở FR-35/FR-36.
-- **Migration `training_module`:** chuyển `WorkoutPlanItem.weekNumber`/`sessionNumber` sang NOT NULL. Migration sẽ lỗi trên database dùng chung nếu bảng này đang có dòng mang giá trị NULL.
+- **Migration `20261012170000_training_module`:** chuyển `WorkoutPlanItem.weekNumber`/`sessionNumber` sang NOT NULL. Migration sẽ lỗi trên database dùng chung nếu bảng này đang có dòng mang giá trị NULL. Render chạy `prisma migrate deploy` mỗi lần deploy (`render.yaml`), nên cần kiểm tra bảng này trước khi merge.
 - **Middleware xác thực:** `src/middleware/auth.ts` là bản tạm cho FR-04. Khi hoàn thiện RBAC, chỉ cần giữ nguyên tên export `authenticate`, `authorize`, `getAuthUser`.
 - **Role trong seed:** seed gốc tạo thêm role `CASHIER` và `ADMIN`, trong khi backlog chỉ có 4 role.
 
