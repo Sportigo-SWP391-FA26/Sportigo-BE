@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { authenticate, authorize } from '../../middleware/auth.js'
 import {
   getSessionAttendance,
+  listAttendance,
   markSessionAttendance,
 } from './attendance.controller.js'
 
@@ -18,4 +19,13 @@ classSessionAttendanceRouter.put(
   authenticate,
   authorize('COACH'),
   markSessionAttendance,
+)
+
+// Gắn tại /api/attendance
+export const attendanceRouter = Router()
+attendanceRouter.get(
+  '/',
+  authenticate,
+  authorize('MEMBER', 'COACH', 'CENTER_MANAGER'),
+  listAttendance,
 )

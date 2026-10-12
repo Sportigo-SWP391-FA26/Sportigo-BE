@@ -49,6 +49,21 @@ function pathId(description: string, name = 'id') {
   }
 }
 
+function queryParam(name: string, schema: object, description: string) {
+  return { name, in: 'query', required: false, schema, description }
+}
+
+const integerId = { type: 'integer', minimum: 1 }
+
+const pageParams = [
+  queryParam('page', { type: 'integer', minimum: 1, default: 1 }, 'Trang'),
+  queryParam(
+    'pageSize',
+    { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+    'Số bản ghi mỗi trang (tối đa 100)',
+  ),
+]
+
 const security = [{ bearerAuth: [] }]
 
 const authErrors = {
@@ -160,6 +175,68 @@ export const trainingPaths = {
             details: { invalidRegistrationIds: [77] },
           },
         ),
+      },
+    },
+  },
+  '/attendance': {
+    get: {
+      tags: ['Training – Điểm danh'],
+      summary: 'FR-48: Lịch sử điểm danh (phân trang)',
+      description:
+        'MEMBER chỉ thấy của mình (memberId gửi lên bị bỏ qua); COACH chỉ thấy lớp mình phụ trách; ' +
+        'CENTER_MANAGER lọc tự do. Sắp xếp theo thời gian buổi học giảm dần; from/to so với startsAt của buổi.',
+      security,
+      parameters: [
+        queryParam('classId', integerId, 'Lọc theo lớp'),
+        queryParam('memberId', integerId, 'Lọc theo Member (Manager, Coach)'),
+        queryParam('sessionId', integerId, 'Lọc theo buổi học'),
+        queryParam(
+          'status',
+          { type: 'string', enum: ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED'] },
+          'Trạng thái điểm danh',
+        ),
+        queryParam(
+          'from',
+          { type: 'string', format: 'date-time' },
+          'Buổi học bắt đầu từ thời điểm (ISO 8601)',
+        ),
+        queryParam(
+          'to',
+          { type: 'string', format: 'date-time' },
+          'Buổi học bắt đầu đến thời điểm (ISO 8601)',
+        ),
+        ...pageParams,
+      ],
+      responses: {
+        '200': ok('Danh sách điểm danh', {
+          items: [
+            {
+              id: 90,
+              status: 'PRESENT',
+              note: null,
+              checkedAt: '2026-10-12T01:05:00.000Z',
+              updatedAt: '2026-10-12T01:05:00.000Z',
+              registrationId: 31,
+              session: {
+                id: 5,
+                startsAt: '2026-10-12T01:00:00.000Z',
+                endsAt: '2026-10-12T02:30:00.000Z',
+                status: 'SCHEDULED',
+              },
+              class: {
+                id: 2,
+                name: 'Bơi cơ bản K12',
+                sport: { id: 1, name: 'Bơi lội' },
+              },
+              member: memberExample,
+            },
+          ],
+          page: 1,
+          pageSize: 20,
+          total: 1,
+        }),
+        ...authErrors,
+        '422': validationError,
       },
     },
   },

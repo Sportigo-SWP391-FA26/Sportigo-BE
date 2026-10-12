@@ -2,8 +2,12 @@ import type { ClassStatus, SessionStatus } from '@prisma/client'
 import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
 import type { AuthUser } from '../../middleware/auth.js'
-import type { MarkAttendanceInput } from './attendance.schema.js'
+import type {
+  ListAttendanceQuery,
+  MarkAttendanceInput,
+} from './attendance.schema.js'
 import {
+  findAttendanceHistory,
   findConfirmedRoster,
   findRegistrationsByIds,
   findSessionWithClass,
@@ -15,6 +19,8 @@ import {
   notFound,
   runInTransaction,
   toMemberRef,
+  toPage,
+  toSkipTake,
 } from './training.common.js'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -115,4 +121,39 @@ export async function getSessionAttendance(user: AuthUser, sessionId: number) {
       attendance: registration.attendances[0] ?? null,
     })),
   }
+}
+
+type HistoryRow = Awaited<ReturnType<typeof findAttendanceHistory>>[0][number]
+
+function toHistoryItem({
+  classSession,
+  registration,
+  ...attendance
+}: HistoryRow) {
+  const { groupClass, ...session } = classSession
+  return {
+    ...attendance,
+    registrationId: registration.id,
+    session,
+    class: groupClass,
+    member: toMemberRef(registration.member),
+  }
+}
+
+export async function listAttendanceHistory(
+  user: AuthUser,
+  query: ListAttendanceQuery,
+) {
+  const { page, pageSize, ...filters } = query
+  const [rows, total] = await findAttendanceHistory(
+    {
+      ...filters,
+      // FR-48: Member chỉ xem của mình (bỏ qua memberId gửi lên),
+      // Coach chỉ xem các lớp mình phụ trách, Manager lọc tự do.
+      memberId: user.role === 'MEMBER' ? user.id : filters.memberId,
+      coachId: user.role === 'COACH' ? user.id : undefined,
+    },
+    toSkipTake({ page, pageSize }),
+  )
+  return toPage(rows.map(toHistoryItem), total, { page, pageSize })
 }

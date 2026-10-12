@@ -1,4 +1,4 @@
-import type { AttendanceStatus } from '@prisma/client'
+import type { AttendanceStatus, Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { memberRefSelect, type Db } from './training.common.js'
 
@@ -71,4 +71,65 @@ export function findConfirmedRoster(classId: number, sessionId: number) {
       },
     },
   })
+}
+
+export type AttendanceHistoryFilter = {
+  memberId?: number
+  coachId?: number
+  classId?: number
+  sessionId?: number
+  status?: AttendanceStatus
+  from?: Date
+  to?: Date
+}
+
+const historySelect = {
+  id: true,
+  status: true,
+  note: true,
+  checkedAt: true,
+  updatedAt: true,
+  classSession: {
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      status: true,
+      groupClass: {
+        select: {
+          id: true,
+          name: true,
+          sport: { select: { id: true, name: true } },
+        },
+      },
+    },
+  },
+  registration: {
+    select: { id: true, member: { select: memberRefSelect } },
+  },
+} as const
+
+export function findAttendanceHistory(
+  filter: AttendanceHistoryFilter,
+  page: { skip: number; take: number },
+) {
+  const where: Prisma.SessionAttendanceWhereInput = {
+    status: filter.status,
+    classSessionId: filter.sessionId,
+    registration: { memberId: filter.memberId },
+    classSession: {
+      classId: filter.classId,
+      startsAt: { gte: filter.from, lte: filter.to },
+      groupClass: { coachId: filter.coachId },
+    },
+  }
+  return prisma.$transaction([
+    prisma.sessionAttendance.findMany({
+      where,
+      orderBy: [{ classSession: { startsAt: 'desc' } }, { id: 'desc' }],
+      ...page,
+      select: historySelect,
+    }),
+    prisma.sessionAttendance.count({ where }),
+  ])
 }
