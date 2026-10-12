@@ -63,8 +63,26 @@ export async function register(input: RegisterInput) {
     phone: input.phone,
     passwordHash: await bcrypt.hash(input.password, 12),
   })
-  const verificationUrl = await issueVerification(user)
-  return { message: 'Đăng ký thành công. Vui lòng kiểm tra email để kích hoạt tài khoản.', email: user.email, verificationUrl }
+  try {
+    const verificationUrl = await issueVerification(user)
+    return {
+      message: 'Đăng ký thành công. Vui lòng kiểm tra email để kích hoạt tài khoản.',
+      email: user.email,
+      emailSent: true,
+      verificationUrl,
+    }
+  } catch (error) {
+    // The account and verification token already exist. Returning a successful
+    // registration prevents the user from retrying registration and receiving
+    // a misleading duplicate-account error. They can retry delivery from the
+    // verification screen without weakening the verification requirement.
+    console.error('Verification email could not be delivered after registration', error)
+    return {
+      message: 'Tài khoản đã được tạo nhưng email xác minh chưa gửi được. Vui lòng thử gửi lại.',
+      email: user.email,
+      emailSent: false,
+    }
+  }
 }
 
 export async function verifyEmail(token: string) {
