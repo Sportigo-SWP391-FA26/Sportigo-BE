@@ -18,9 +18,9 @@ Swagger UI: `http://localhost:3000/api-docs`.
 
 ## Gửi email xác minh
 
-Backend sử dụng Gmail SMTP qua Nodemailer. Bật xác minh hai bước cho tài khoản
-Google gửi mail, tạo App Password và cấu hình các biến `SMTP_USER`,
-`SMTP_APP_PASSWORD` và `EMAIL_FROM` theo `.env.example`. Không dùng mật khẩu đăng
-nhập Google thông thường và không commit App Password vào Git.
+Backend gọi một Google Apps Script qua HTTPS để tương thích với Render Free
+(Render chặn các cổng SMTP). Apps Script gửi mail bằng Gmail của Sportigo và xác
+thực request bằng secret. Cấu hình `GMAIL_WEBHOOK_URL`, `GMAIL_WEBHOOK_SECRET`
+và `EMAIL_FROM` theo `.env.example`; không commit URL/secret triển khai vào Git.
 
 Xem [ARCHITECTURE.md](./ARCHITECTURE.md) để biết cấu trúc thư mục và quy tắc phụ thuộc.

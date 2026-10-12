@@ -54,7 +54,7 @@ export const openApiDocument = {
     },
     '/auth/resend-verification': {
       post: {
-        summary: 'Gửi lại email xác minh qua Gmail SMTP',
+        summary: 'Gửi lại email xác minh qua Gmail HTTPS webhook',
         requestBody: { required: true },
         responses: { '200': { description: 'Yêu cầu đã được tiếp nhận' } },
       },
