@@ -3,6 +3,11 @@ import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js'
 import { markAttendanceSchema } from './attendance.schema.js'
 import { BR_MESSAGES } from './training.common.js'
 import {
+  createItemSchema,
+  reorderItemsSchema,
+  updateItemSchema,
+} from './workout-plan-item.schema.js'
+import {
   changePlanStatusSchema,
   createPlanSchema,
   updatePlanSchema,
@@ -126,6 +131,11 @@ const planItemExample = {
 const planNotFound = error('Không tìm thấy giáo án', {
   code: 'NOT_FOUND',
   message: 'Không tìm thấy giáo án',
+})
+
+const duplicateItemOrder = error('Trùng tuần/buổi/thứ tự (BR-45)', {
+  code: 'DUPLICATE_ITEM_ORDER',
+  message: BR_MESSAGES.BR45,
 })
 
 export const trainingPaths = {
@@ -407,6 +417,105 @@ export const trainingPaths = {
         '422': error('Sai dữ liệu hoặc giáo án chưa có mục', {
           code: 'PLAN_HAS_NO_ITEMS',
           message: 'Giáo án phải có ít nhất một mục trước khi kích hoạt',
+        }),
+      },
+    },
+  },
+  '/workout-plans/{id}/items': {
+    get: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-50: Các mục của giáo án (tuần → buổi → thứ tự)',
+      security,
+      parameters: [pathId('ID giáo án')],
+      responses: {
+        '200': ok('Danh sách mục', [planItemExample]),
+        ...authErrors,
+        '404': planNotFound,
+        '422': validationError,
+      },
+    },
+    post: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-50: Thêm mục vào giáo án (COACH)',
+      description:
+        'Bỏ trống itemOrder thì mục được xếp cuối tuần/buổi. Trùng (tuần, buổi, thứ tự) trả 409 (BR-45). ' +
+        'weekNumber không được vượt durationWeeks của giáo án.',
+      security,
+      parameters: [pathId('ID giáo án')],
+      requestBody: jsonBody(createItemSchema, {
+        weekNumber: 1,
+        sessionNumber: 1,
+        title: 'Khởi động',
+        content: 'Xoay khớp, bơi nhẹ 200m',
+        durationMinutes: 10,
+        intensity: 'LOW',
+      }),
+      responses: {
+        '201': ok('Đã thêm mục', planItemExample),
+        ...authErrors,
+        '404': planNotFound,
+        '409': duplicateItemOrder,
+        '422': validationError,
+      },
+    },
+  },
+  '/workout-plans/{id}/items/reorder': {
+    patch: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-50: Sắp xếp lại thứ tự các mục trong cùng tuần/buổi',
+      description:
+        'Gửi đủ tất cả mục của một tuần/buổi; itemOrder phải là 1..n liên tục. Chạy trong một transaction.',
+      security,
+      parameters: [pathId('ID giáo án')],
+      requestBody: jsonBody(reorderItemsSchema, {
+        items: [
+          { itemId: 23, itemOrder: 1 },
+          { itemId: 21, itemOrder: 2 },
+          { itemId: 22, itemOrder: 3 },
+        ],
+      }),
+      responses: {
+        '200': ok('Toàn bộ mục của giáo án sau khi sắp xếp', [planItemExample]),
+        ...authErrors,
+        '404': planNotFound,
+        '422': error('Thiếu mục, khác tuần/buổi, hoặc thứ tự không liên tục', {
+          code: 'REORDER_INCOMPLETE',
+          message: 'Phải gửi đủ 3 mục của tuần 1, buổi 1',
+        }),
+      },
+    },
+  },
+  '/workout-plans/{id}/items/{itemId}': {
+    patch: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-50: Sửa mục giáo án (COACH)',
+      security,
+      parameters: [pathId('ID giáo án'), pathId('ID mục giáo án', 'itemId')],
+      requestBody: jsonBody(updateItemSchema, {
+        content: 'Bơi nhẹ 300m',
+        sets: 2,
+      }),
+      responses: {
+        '200': ok('Đã cập nhật', planItemExample),
+        ...authErrors,
+        '404': error('Không tìm thấy giáo án hoặc mục không thuộc giáo án'),
+        '409': duplicateItemOrder,
+        '422': validationError,
+      },
+    },
+    delete: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-50: Xóa mục giáo án và đánh lại thứ tự liên tục',
+      description: 'Không xóa được mục cuối cùng của giáo án đang ACTIVE.',
+      security,
+      parameters: [pathId('ID giáo án'), pathId('ID mục giáo án', 'itemId')],
+      responses: {
+        '204': { description: 'Đã xóa' },
+        ...authErrors,
+        '404': error('Không tìm thấy giáo án hoặc mục không thuộc giáo án'),
+        '409': error('Mục cuối cùng của giáo án đang hoạt động', {
+          code: 'PLAN_NEEDS_ITEMS',
+          message: 'Không thể xóa mục cuối cùng của giáo án đang hoạt động',
         }),
       },
     },
