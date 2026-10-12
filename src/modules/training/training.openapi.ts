@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js'
 import { markAttendanceSchema } from './attendance.schema.js'
+import { assignPlanSchema } from './plan-assignment.schema.js'
 import { BR_MESSAGES } from './training.common.js'
 import {
   createItemSchema,
@@ -132,6 +133,22 @@ const planNotFound = error('Không tìm thấy giáo án', {
   code: 'NOT_FOUND',
   message: 'Không tìm thấy giáo án',
 })
+
+const assignmentExample = {
+  id: 7,
+  enrollmentId: 15,
+  status: 'ACTIVE',
+  assignedAt: '2026-10-08T03:00:00.000Z',
+  workoutPlan: {
+    id: 3,
+    name: 'Bơi ếch nền tảng 4 tuần',
+    level: 'BEGINNER',
+    status: 'ACTIVE',
+    durationWeeks: 4,
+    sport: { id: 1, name: 'Bơi lội' },
+  },
+  assignedBy: { id: 4, coachCode: 'COA-0004', displayName: 'Lê Văn Cường' },
+}
 
 const duplicateItemOrder = error('Trùng tuần/buổi/thứ tự (BR-45)', {
   code: 'DUPLICATE_ITEM_ORDER',
@@ -516,6 +533,45 @@ export const trainingPaths = {
         '409': error('Mục cuối cùng của giáo án đang hoạt động', {
           code: 'PLAN_NEEDS_ITEMS',
           message: 'Không thể xóa mục cuối cùng của giáo án đang hoạt động',
+        }),
+      },
+    },
+  },
+  '/private-enrollments/{id}/plans': {
+    get: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-51: Các giáo án đã gán cho khóa 1-1',
+      description:
+        'Coach phụ trách enrollment, Member chủ enrollment hoặc Center Manager.',
+      security,
+      parameters: [pathId('ID enrollment (PrivateCourseEnrollment)')],
+      responses: {
+        '200': ok('Danh sách gán giáo án, mới nhất trước', [assignmentExample]),
+        ...authErrors,
+        '404': error('Không tìm thấy khóa học 1-1'),
+        '422': validationError,
+      },
+    },
+    post: {
+      tags: ['Training – Giáo án'],
+      summary: 'FR-51: Coach gán giáo án đúng môn cho khóa 1-1',
+      description:
+        'Coach phải phụ trách enrollment và enrollment phải ACTIVE. Giáo án phải ACTIVE và cùng môn (BR-44). ' +
+        'Một khóa có thể có nhiều giáo án; gán trùng giáo án đang ACTIVE trả 409, gán lại giáo án đã kết thúc thì kích hoạt lại.',
+      security,
+      parameters: [pathId('ID enrollment (PrivateCourseEnrollment)')],
+      requestBody: jsonBody(assignPlanSchema, { workoutPlanId: 3 }),
+      responses: {
+        '201': ok('Đã gán giáo án', assignmentExample),
+        ...authErrors,
+        '404': error('Không tìm thấy khóa học 1-1 hoặc giáo án'),
+        '409': error('Enrollment chưa ACTIVE hoặc giáo án đang được gán', {
+          code: 'PLAN_ALREADY_ASSIGNED',
+          message: 'Giáo án này đang được gán cho khóa học',
+        }),
+        '422': error('Giáo án sai môn hoặc chưa ACTIVE (BR-44)', {
+          code: 'PLAN_NOT_ASSIGNABLE',
+          message: BR_MESSAGES.BR44,
         }),
       },
     },
