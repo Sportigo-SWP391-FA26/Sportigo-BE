@@ -42,5 +42,37 @@ export const openApiDocument = {
         },
       },
     },
+    '/auth/verify-email': {
+      post: {
+        summary: 'Xác minh email bằng liên kết một lần',
+        requestBody: { required: true },
+        responses: {
+          '200': { description: 'Email đã được xác minh' },
+          '400': { description: 'Token không hợp lệ hoặc hết hạn' },
+        },
+      },
+    },
+    '/auth/resend-verification': {
+      post: {
+        summary: 'Gửi lại email xác minh qua Resend',
+        requestBody: { required: true },
+        responses: { '200': { description: 'Yêu cầu đã được tiếp nhận' } },
+      },
+    },
+    '/auth/refresh': {
+      post: {
+        summary: 'Đổi refresh token HttpOnly lấy access token mới',
+        responses: {
+          '200': { description: 'Token mới đã được cấp' },
+          '401': { description: 'Phiên đăng nhập không hợp lệ hoặc hết hạn' },
+        },
+      },
+    },
+    '/auth/logout': {
+      post: {
+        summary: 'Đăng xuất và thu hồi refresh token',
+        responses: { '200': { description: 'Đã đăng xuất' } },
+      },
+    },
   },
 } as const
