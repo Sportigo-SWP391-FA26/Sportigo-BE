@@ -664,4 +664,53 @@ export const trainingPaths = {
       },
     },
   },
+  '/members/me/training': {
+    get: {
+      tags: ['Training – Member'],
+      summary: 'FR-53: Giáo án được gán và đánh giá tiến độ của chính Member',
+      description:
+        'Chỉ MEMBER; id lấy từ token, không nhận id từ client. Chỉ đọc. ' +
+        'planAssignments gồm gán ACTIVE/COMPLETED kèm mục giáo án; cả hai danh sách sắp theo thời gian giảm dần.',
+      security,
+      responses: {
+        '200': ok('Dữ liệu tập luyện của Member', {
+          planAssignments: [
+            {
+              id: 7,
+              status: 'ACTIVE',
+              assignedAt: '2026-10-08T03:00:00.000Z',
+              assignedBy: {
+                id: 4,
+                coachCode: 'COA-0004',
+                displayName: 'Lê Văn Cường',
+              },
+              workoutPlan: {
+                id: 3,
+                name: 'Bơi ếch nền tảng 4 tuần',
+                level: 'BEGINNER',
+                description: 'Giáo án cho người mới bắt đầu',
+                durationWeeks: 4,
+                sport: { id: 1, name: 'Bơi lội' },
+                items: [planItemExample],
+              },
+              enrollment: {
+                id: 15,
+                status: 'ACTIVE',
+                startDate: '2026-10-01',
+                expiryDate: '2026-12-30',
+                course: { id: 2, name: 'Bơi 1-1 12 buổi' },
+                coach: {
+                  id: 4,
+                  coachCode: 'COA-0004',
+                  displayName: 'Lê Văn Cường',
+                },
+              },
+            },
+          ],
+          assessments: [assessmentExample],
+        }),
+        ...authErrors,
+      },
+    },
+  },
 }
