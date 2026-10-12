@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { registerSchema } from '../src/modules/auth/auth.schema.js'
+import { registerSchema, resendVerificationSchema, verifyEmailSchema } from '../src/modules/auth/auth.schema.js'
 
 describe('registerSchema', () => {
   const validInput = {
@@ -16,5 +16,15 @@ describe('registerSchema', () => {
 
   it('rejects mismatched passwords', () => {
     expect(registerSchema.safeParse({ ...validInput, confirmPassword: 'Different123' }).success).toBe(false)
+  })
+})
+
+describe('email verification schemas', () => {
+  it('accepts a secure verification token', () => {
+    expect(verifyEmailSchema.safeParse({ token: 'a'.repeat(64) }).success).toBe(true)
+  })
+
+  it('normalizes the email used to resend verification', () => {
+    expect(resendVerificationSchema.parse({ email: ' MEMBER@SPORTIGO.VN ' }).email).toBe('member@sportigo.vn')
   })
 })

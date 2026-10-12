@@ -205,31 +205,45 @@ model Role {
 }
 
 model User {
-  id                 Int                 @id @default(autoincrement())
-  email              String              @unique @db.VarChar(255)
-  phone              String?             @unique @db.VarChar(20)
-  passwordHash       String
-  displayName        String              @db.VarChar(100)
-  status             UserStatus          @default(ACTIVE)
-  roleId             Int
-  role               Role                @relation(fields: [roleId], references: [id])
-  member             Member?
-  coach              Coach?
-  refreshTokens      RefreshToken[]
-  notifications      Notification[]
-  auditLogs          AuditLog[]
-  scheduleChanges    ScheduleChange[]
-  supportRequests    SupportRequest[]
-  supportMessages    SupportMessage[]
-  assignedRequests   RequestAssignment[] @relation("AssignedTo")
-  assignedByRequests RequestAssignment[] @relation("AssignedBy")
-  collectedPayments  Payment[]           @relation("PaymentCollector")
-  paymentAdjustments PaymentAdjustment[]
-  reviewedRefunds    RefundRequest[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  id                      Int                      @id @default(autoincrement())
+  email                   String                   @unique @db.VarChar(255)
+  phone                   String?                  @unique @db.VarChar(20)
+  passwordHash            String
+  displayName             String                   @db.VarChar(100)
+  status                  UserStatus               @default(ACTIVE)
+  emailVerifiedAt         DateTime?
+  roleId                  Int
+  role                    Role                     @relation(fields: [roleId], references: [id])
+  member                  Member?
+  coach                   Coach?
+  refreshTokens           RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+  scheduleChanges         ScheduleChange[]
+  supportRequests         SupportRequest[]
+  supportMessages         SupportMessage[]
+  assignedRequests        RequestAssignment[]      @relation("AssignedTo")
+  assignedByRequests      RequestAssignment[]      @relation("AssignedBy")
+  collectedPayments       Payment[]                @relation("PaymentCollector")
+  paymentAdjustments      PaymentAdjustment[]
+  reviewedRefunds         RefundRequest[]
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
 
   @@index([roleId, status])
+}
+
+model EmailVerificationToken {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model RefreshToken {
