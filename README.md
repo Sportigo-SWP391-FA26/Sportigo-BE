@@ -16,4 +16,11 @@ Health check: `GET http://localhost:3000/health`.
 
 Swagger UI: `http://localhost:3000/api-docs`.
 
+## Gửi email xác minh
+
+Backend sử dụng Gmail SMTP qua Nodemailer. Bật xác minh hai bước cho tài khoản
+Google gửi mail, tạo App Password và cấu hình các biến `SMTP_USER`,
+`SMTP_APP_PASSWORD` và `EMAIL_FROM` theo `.env.example`. Không dùng mật khẩu đăng
+nhập Google thông thường và không commit App Password vào Git.
+
 Xem [ARCHITECTURE.md](./ARCHITECTURE.md) để biết cấu trúc thư mục và quy tắc phụ thuộc.

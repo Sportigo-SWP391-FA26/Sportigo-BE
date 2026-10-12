@@ -13,8 +13,15 @@ const schema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
   APP_URL: z.string().url().default('http://localhost:5173'),
-  RESEND_API_KEY: z.string().min(1).optional(),
-  RESEND_FROM_EMAIL: z.string().default('Sportigo <onboarding@resend.dev>'),
+  SMTP_HOST: z.string().min(1).default('smtp.gmail.com'),
+  SMTP_PORT: z.coerce.number().int().positive().default(465),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  SMTP_USER: z.string().email().optional(),
+  SMTP_APP_PASSWORD: z.string().min(16).optional(),
+  EMAIL_FROM: z.string().min(1).optional(),
 })
 
 export const env = schema.parse(process.env)
