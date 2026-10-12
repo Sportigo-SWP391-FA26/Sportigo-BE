@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { seedTrainingDemo } from './seed-training.js'
 
 const prisma = new PrismaClient()
 
@@ -42,6 +43,8 @@ async function main() {
   ]) {
     await prisma.paymentMethod.upsert({ where: { code: method.code }, update: method, create: method })
   }
+
+  await seedTrainingDemo(prisma)
 }
 
 main()
