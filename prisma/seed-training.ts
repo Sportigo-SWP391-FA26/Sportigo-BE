@@ -26,6 +26,7 @@ async function upsertDemoUser(
     data.role === 'COACH'
       ? { coach: { create: { coachCode: data.code } } }
       : { member: { create: { memberCode: data.code } } }
+  // Tài khoản demo coi như đã xác minh email để đăng nhập được (FR-02)
   return prisma.user.upsert({
     where: { email: data.email },
     update: {},
@@ -33,6 +34,7 @@ async function upsertDemoUser(
       email: data.email,
       displayName: data.displayName,
       passwordHash: data.passwordHash,
+      emailVerifiedAt: new Date(),
       roleId: role.id,
       ...profile,
     },
