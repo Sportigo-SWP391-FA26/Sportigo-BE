@@ -12,6 +12,7 @@ const schema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
+  ATTENDANCE_EDIT_WINDOW_HOURS: z.coerce.number().int().positive().default(24),
 })
 
 export const env = schema.parse(process.env)

@@ -1,3 +1,5 @@
+import { trainingPaths } from './modules/training/training.openapi.js'
+
 export const openApiDocument = {
   openapi: '3.0.3',
   info: {
@@ -6,7 +8,13 @@ export const openApiDocument = {
     description: 'REST API cho hệ thống quản lý trung tâm thể thao.',
   },
   servers: [{ url: 'http://localhost:3000/api' }],
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+    },
+  },
   paths: {
+    ...trainingPaths,
     '/auth/login': {
       post: {
         summary: 'Đăng nhập bằng email hoặc số điện thoại',
