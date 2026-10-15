@@ -52,11 +52,11 @@ export const openApiDocument = {
     },
     '/auth/verify-email': {
       post: {
-        summary: 'Xác minh email bằng liên kết một lần',
+        summary: 'Xác minh email bằng mã OTP 6 số',
         requestBody: { required: true },
         responses: {
           '200': { description: 'Email đã được xác minh' },
-          '400': { description: 'Token không hợp lệ hoặc hết hạn' },
+          '400': { description: 'Mã OTP không đúng hoặc hết hạn' },
         },
       },
     },

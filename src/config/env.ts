@@ -11,7 +11,10 @@ const schema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
-  CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
+  CORS_ORIGIN: z
+    .string()
+    .min(1)
+    .default('http://localhost:5173,http://127.0.0.1:5173'),
   APP_URL: z.string().url().default('http://localhost:5173'),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().default('Sportigo <onboarding@resend.dev>'),

@@ -22,6 +22,9 @@ export const registerSchema = z
 
 export type RegisterInput = z.infer<typeof registerSchema>
 
-export const verifyEmailSchema = z.object({ token: z.string().min(32) })
+export const verifyEmailSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  code: z.string().trim().regex(/^\d{6}$/, 'Mã OTP phải gồm đúng 6 chữ số'),
+})
 export const resendVerificationSchema = z.object({ email: z.string().trim().toLowerCase().email() })
 export const refreshSchema = z.object({ refreshToken: z.string().optional() })

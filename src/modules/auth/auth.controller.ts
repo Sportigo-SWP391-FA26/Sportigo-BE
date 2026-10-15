@@ -29,8 +29,8 @@ export const register: RequestHandler = async (request, response) => {
 }
 
 export const verifyEmail: RequestHandler = async (request, response) => {
-  const { token } = verifyEmailSchema.parse(request.body)
-  response.json(await authService.verifyEmail(token))
+  const { email, code } = verifyEmailSchema.parse(request.body)
+  response.json(await authService.verifyEmail(email, code))
 }
 
 export const resendVerification: RequestHandler = async (request, response) => {
