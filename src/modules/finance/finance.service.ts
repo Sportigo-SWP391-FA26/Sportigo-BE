@@ -47,7 +47,7 @@ export async function createServiceOrder(input: { memberId: number; itemType: Or
 export const getOrder = requireOrder
 
 export async function applyPromotion(orderId: number, code: string, user: { id: number; role: string }) {
-  return prisma.$transaction(async (tx) => {
+  const work = async (tx: Prisma.TransactionClient) => {
     const order = await requireOrder(orderId, user, tx)
     if (!['CART', 'PENDING_PAYMENT'].includes(order.status)) throw new HttpError(409, 'Đơn hàng không thể áp dụng khuyến mãi', 'ORDER_NOT_PAYABLE')
     const promotion = await tx.promotion.findUnique({ where: { code: code.toUpperCase() } })
@@ -57,17 +57,23 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
     const itemTypes = new Set(order.items.map((item) => item.itemType))
     if (promotion.applicableType !== 'ALL' && !itemTypes.has(promotion.applicableType)) throw new HttpError(400, 'Mã không áp dụng cho dịch vụ này', 'PROMOTION_SCOPE_MISMATCH')
     const [total, memberTotal] = await Promise.all([
-      tx.promotionUsage.count({ where: { promotionId: promotion.id } }),
-      tx.promotionUsage.count({ where: { promotionId: promotion.id, memberId: order.memberId } }),
+      tx.promotionUsage.count({ where: { promotionId: promotion.id, orderId: { not: order.id } } }),
+      tx.promotionUsage.count({ where: { promotionId: promotion.id, memberId: order.memberId, orderId: { not: order.id } } }),
     ])
     if (promotion.totalUsageLimit && total >= promotion.totalUsageLimit || promotion.perMemberLimit && memberTotal >= promotion.perMemberLimit) throw new HttpError(409, 'Mã khuyến mãi đã hết lượt sử dụng', 'PROMOTION_USAGE_LIMIT')
     let discount = promotion.discountType === 'PERCENTAGE' ? order.originalAmount.mul(promotion.discountValue).div(100) : promotion.discountValue
     if (promotion.maxDiscount) discount = Prisma.Decimal.min(discount, promotion.maxDiscount)
     discount = Prisma.Decimal.min(discount, order.originalAmount)
     const updated = await tx.serviceOrder.update({ where: { id: order.id }, data: { promotionId: promotion.id, discountAmount: discount, finalAmount: order.originalAmount.minus(discount) }, include: orderInclude })
+    await tx.promotionUsage.upsert({ where: { orderId: order.id }, create: { orderId: order.id, promotionId: promotion.id, memberId: order.memberId }, update: { promotionId: promotion.id, memberId: order.memberId } })
     await audit(tx, { actorId: user.id, action: 'APPLY_PROMOTION', entityType: 'ServiceOrder', entityId: order.id, oldData: { promotionId: order.promotionId }, newData: { promotionId: promotion.id, discount: discount.toString() } })
     return updated
-  })
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try { return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) }
+    catch (error) { if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') || attempt === 2) throw error }
+  }
+  throw new HttpError(409, 'Không thể giữ lượt khuyến mãi, vui lòng thử lại', 'PROMOTION_CONFLICT')
 }
 
 export async function listPromotions() { return prisma.promotion.findMany({ orderBy: { createdAt: 'desc' } }) }
@@ -217,8 +223,8 @@ export async function completeRefund(id: number, actorId: number, ipAddress?: st
   })
 }
 
-export async function revenueReport(from?: Date, to?: Date) {
-  const payments = await prisma.payment.findMany({ where: { status: { in: ['SUCCESS', 'PARTIALLY_REFUNDED', 'REFUNDED'] }, paidAt: { gte: from, lte: to } }, include: { adjustments: true, paymentMethod: true, order: { include: { items: true } } } })
+export async function revenueReport(query: { from?: Date; to?: Date; channel?: Prisma.EnumPaymentChannelFilter['equals']; itemType?: OrderItemType } = {}) {
+  const payments = await prisma.payment.findMany({ where: { status: { in: ['SUCCESS', 'PARTIALLY_REFUNDED', 'REFUNDED'] }, channel: query.channel, paidAt: { gte: query.from, lte: query.to }, order: query.itemType ? { items: { some: { itemType: query.itemType } } } : undefined }, include: { adjustments: true, paymentMethod: true, order: { include: { items: true } } } })
   return payments.reduce((report, payment) => {
     const refunds = payment.adjustments.filter((item) => item.type === 'REFUND').reduce((sum, item) => sum.plus(item.amount), money(0)); const net = payment.amount.minus(refunds)
     report.gross += asNumber(payment.amount); report.refunds += asNumber(refunds); report.net += asNumber(net); report.transactions += 1
@@ -227,13 +233,15 @@ export async function revenueReport(from?: Date, to?: Date) {
   }, { gross: 0, refunds: 0, net: 0, transactions: 0, byChannel: {} as Record<string, number> })
 }
 
-export async function classReport() {
-  const classes = await prisma.groupClass.findMany({ include: { registrations: true, waitlists: true, sessions: { include: { attendances: true } } }, orderBy: { startDate: 'desc' } })
+export async function classReport(query: { from?: Date; to?: Date; sportId?: number; coachId?: number; classId?: number } = {}) {
+  const classes = await prisma.groupClass.findMany({ where: { id: query.classId, sportId: query.sportId, coachId: query.coachId, startDate: { gte: query.from, lte: query.to } }, include: { registrations: true, waitlists: true, sessions: { include: { attendances: true } } }, orderBy: { startDate: 'desc' } })
   return classes.map((item) => { const confirmed = item.registrations.filter((r) => r.status === 'CONFIRMED').length; const attendance = item.sessions.flatMap((s) => s.attendances); return { id: item.id, name: item.name, capacity: item.capacity, confirmed, waitlist: item.waitlists.filter((w) => w.status === 'WAITING').length, occupancyRate: item.capacity ? confirmed / item.capacity : 0, attendanceRate: attendance.length ? attendance.filter((a) => ['PRESENT', 'LATE'].includes(a.status)).length / attendance.length : 0 } })
 }
 
-export async function listAuditLogs(page: number, limit: number) {
-  const [items, total] = await Promise.all([prisma.auditLog.findMany({ include: { actor: { select: { id: true, displayName: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), prisma.auditLog.count()])
+export async function listAuditLogs(query: { page: number; limit: number; actorId?: number; action?: string; entityType?: string; from?: Date; to?: Date }) {
+  const { page, limit } = query
+  const where: Prisma.AuditLogWhereInput = { actorId: query.actorId, action: query.action ? { contains: query.action, mode: 'insensitive' } : undefined, entityType: query.entityType ? { equals: query.entityType, mode: 'insensitive' } : undefined, createdAt: { gte: query.from, lte: query.to } }
+  const [items, total] = await Promise.all([prisma.auditLog.findMany({ where, include: { actor: { select: { id: true, displayName: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), prisma.auditLog.count({ where })])
   return { items, page, limit, total }
 }
 

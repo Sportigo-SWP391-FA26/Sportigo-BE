@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { promotionSchema, refundReviewSchema, walletPaymentSchema } from '../../src/modules/finance/finance.schema.js'
+import { auditListSchema, classReportSchema, promotionSchema, refundReviewSchema, revenueReportSchema, walletPaymentSchema } from '../../src/modules/finance/finance.schema.js'
 
 describe('finance request validation', () => {
   it('normalizes promotion codes and rejects an invalid period', () => {
@@ -11,5 +11,11 @@ describe('finance request validation', () => {
   it('requires a positive wallet amount and a manager note', () => {
     expect(walletPaymentSchema.safeParse({ amount: 0 }).success).toBe(false)
     expect(refundReviewSchema.safeParse({ decision: 'APPROVE', note: '' }).success).toBe(false)
+  })
+
+  it('parses report and audit filters', () => {
+    expect(revenueReportSchema.parse({ channel: 'WALLET', itemType: 'GROUP_CLASS' }).channel).toBe('WALLET')
+    expect(classReportSchema.parse({ sportId: '2' }).sportId).toBe(2)
+    expect(auditListSchema.parse({ actorId: '3', action: 'REFUND' }).actorId).toBe(3)
   })
 })
