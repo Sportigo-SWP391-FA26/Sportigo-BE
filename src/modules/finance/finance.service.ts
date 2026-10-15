@@ -3,9 +3,10 @@ import { Prisma, type OrderItemType, type PrismaClient } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { HttpError } from '../../lib/http-error.js'
 import { createPaymentUrl, type VnpayParams, verifyVnpay } from './vnpay.js'
+import { calculateDiscount, calculateRefundable, calculateRemaining, isFullyRefunded, toMoney } from './finance.math.js'
 
 type Db = Prisma.TransactionClient | PrismaClient
-const money = (value: Prisma.Decimal | number | string) => new Prisma.Decimal(value)
+const money = toMoney
 const asNumber = (value: Prisma.Decimal) => Number(value.toFixed(2))
 
 async function audit(db: Db, input: { actorId?: number; action: string; entityType: string; entityId: string | number; oldData?: unknown; newData?: unknown; ipAddress?: string }) {
@@ -29,7 +30,12 @@ function paidAmount(order: Awaited<ReturnType<typeof requireOrder>>) {
 }
 
 function remaining(order: Awaited<ReturnType<typeof requireOrder>>) {
-  return Prisma.Decimal.max(money(0), order.finalAmount.minus(paidAmount(order)))
+  return calculateRemaining(order.finalAmount, order.payments)
+}
+
+function assertPayable(order: Awaited<ReturnType<typeof requireOrder>>) {
+  if (!['CART', 'PENDING_PAYMENT'].includes(order.status)) throw new HttpError(409, 'Đơn hàng không ở trạng thái chờ thanh toán', 'ORDER_NOT_PAYABLE')
+  if (order.expiresAt && order.expiresAt <= new Date()) throw new HttpError(409, 'Đơn hàng đã hết hạn thanh toán', 'ORDER_EXPIRED')
 }
 
 export async function createServiceOrder(input: { memberId: number; itemType: OrderItemType; itemName: string; unitPrice: number; classRegistrationId?: number; privateEnrollmentId?: number; expiresAt?: Date }) {
@@ -49,7 +55,8 @@ export const getOrder = requireOrder
 export async function applyPromotion(orderId: number, code: string, user: { id: number; role: string }) {
   const work = async (tx: Prisma.TransactionClient) => {
     const order = await requireOrder(orderId, user, tx)
-    if (!['CART', 'PENDING_PAYMENT'].includes(order.status)) throw new HttpError(409, 'Đơn hàng không thể áp dụng khuyến mãi', 'ORDER_NOT_PAYABLE')
+    assertPayable(order)
+    if (paidAmount(order).greaterThan(0)) throw new HttpError(409, 'Không thể đổi khuyến mãi sau khi đã thanh toán một phần', 'ORDER_PARTIALLY_PAID')
     const promotion = await tx.promotion.findUnique({ where: { code: code.toUpperCase() } })
     const now = new Date()
     if (!promotion || promotion.status !== 'ACTIVE' || promotion.startAt > now || promotion.endAt < now) throw new HttpError(400, 'Mã khuyến mãi không hợp lệ hoặc đã hết hạn', 'INVALID_PROMOTION')
@@ -61,9 +68,7 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
       tx.promotionUsage.count({ where: { promotionId: promotion.id, memberId: order.memberId, orderId: { not: order.id } } }),
     ])
     if (promotion.totalUsageLimit && total >= promotion.totalUsageLimit || promotion.perMemberLimit && memberTotal >= promotion.perMemberLimit) throw new HttpError(409, 'Mã khuyến mãi đã hết lượt sử dụng', 'PROMOTION_USAGE_LIMIT')
-    let discount = promotion.discountType === 'PERCENTAGE' ? order.originalAmount.mul(promotion.discountValue).div(100) : promotion.discountValue
-    if (promotion.maxDiscount) discount = Prisma.Decimal.min(discount, promotion.maxDiscount)
-    discount = Prisma.Decimal.min(discount, order.originalAmount)
+    const discount = calculateDiscount({ originalAmount: order.originalAmount, discountType: promotion.discountType, discountValue: promotion.discountValue, maxDiscount: promotion.maxDiscount })
     const updated = await tx.serviceOrder.update({ where: { id: order.id }, data: { promotionId: promotion.id, discountAmount: discount, finalAmount: order.originalAmount.minus(discount) }, include: orderInclude })
     await tx.promotionUsage.upsert({ where: { orderId: order.id }, create: { orderId: order.id, promotionId: promotion.id, memberId: order.memberId }, update: { promotionId: promotion.id, memberId: order.memberId } })
     await audit(tx, { actorId: user.id, action: 'APPLY_PROMOTION', entityType: 'ServiceOrder', entityId: order.id, oldData: { promotionId: order.promotionId }, newData: { promotionId: promotion.id, discount: discount.toString() } })
@@ -108,8 +113,10 @@ async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) 
 
 export async function createVnpayPayment(orderId: number, user: { id: number; role: string }, ipAddress: string) {
   return prisma.$transaction(async (tx) => {
-    const order = await requireOrder(orderId, user, tx); const due = remaining(order)
+    const order = await requireOrder(orderId, user, tx); assertPayable(order); const due = remaining(order)
     if (due.lessThanOrEqualTo(0)) throw new HttpError(409, 'Đơn hàng đã được thanh toán đủ', 'ORDER_ALREADY_PAID')
+    const pending = await tx.payment.findFirst({ where: { orderId, channel: 'ONLINE', status: 'PENDING' } })
+    if (pending) return { paymentId: pending.id, amount: asNumber(pending.amount), paymentUrl: createPaymentUrl({ reference: pending.reference, amount: asNumber(pending.amount), ipAddress, orderInfo: `Thanh toan don hang ${order.orderNumber}` }) }
     const method = await ensureMethod(tx, 'VNPAY', 'VNPay Sandbox', true); const reference = `VNP-${Date.now()}-${order.id}`
     const payment = await tx.payment.create({ data: { orderId, paymentMethodId: method.id, reference, amount: due, channel: 'ONLINE', status: 'PENDING', onlineTransaction: { create: { provider: 'VNPAY', requestPayload: { orderId, amount: due.toString() } } } } })
     return { paymentId: payment.id, amount: asNumber(due), paymentUrl: createPaymentUrl({ reference, amount: asNumber(due), ipAddress, orderInfo: `Thanh toan don hang ${order.orderNumber}` }) }
@@ -122,18 +129,21 @@ export async function processVnpayIpn(params: VnpayParams) {
   if (!payment) return { RspCode: '01', Message: 'Order not found' }
   if (!money(params.vnp_Amount ?? 0).div(100).equals(payment.amount)) return { RspCode: '04', Message: 'Invalid amount' }
   if (payment.status === 'SUCCESS') return { RspCode: '02', Message: 'Order already confirmed' }
-  await prisma.$transaction(async (tx) => {
+  const processed = await prisma.$transaction(async (tx) => {
     const success = params.vnp_ResponseCode === '00' && params.vnp_TransactionStatus === '00'
-    await tx.payment.update({ where: { id: payment.id }, data: { status: success ? 'SUCCESS' : 'FAILED', paidAt: success ? new Date() : undefined } })
+    const claimed = await tx.payment.updateMany({ where: { id: payment.id, status: 'PENDING' }, data: { status: success ? 'SUCCESS' : 'FAILED', paidAt: success ? new Date() : undefined } })
+    if (claimed.count !== 1) return false
     await tx.onlineTransaction.update({ where: { paymentId: payment.id }, data: { providerTransactionId: params.vnp_TransactionNo, responsePayload: params, status: success ? 'SUCCESS' : 'FAILED', processedAt: new Date() } })
     if (success) await finalizePaidOrder(tx, payment.orderId)
+    return true
   })
+  if (!processed) return { RspCode: '02', Message: 'Order already confirmed' }
   return { RspCode: '00', Message: 'Confirm Success' }
 }
 
 export async function payCash(orderId: number, actorId: number, receivedAmount: number, ipAddress?: string) {
   return prisma.$transaction(async (tx) => {
-    const order = await requireOrder(orderId, { id: actorId, role: 'RECEPTIONIST' }, tx); const due = remaining(order)
+    const order = await requireOrder(orderId, { id: actorId, role: 'RECEPTIONIST' }, tx); assertPayable(order); const due = remaining(order)
     if (due.lessThanOrEqualTo(0)) throw new HttpError(409, 'Đơn hàng đã được thanh toán đủ', 'ORDER_ALREADY_PAID')
     if (!money(receivedAmount).equals(due)) throw new HttpError(400, 'Số tiền thu phải đúng bằng số tiền đơn hàng còn thiếu', 'CASH_AMOUNT_MISMATCH')
     const method = await ensureMethod(tx, 'CASH', 'Tiền mặt tại quầy', false)
@@ -145,7 +155,7 @@ export async function payCash(orderId: number, actorId: number, receivedAmount: 
 
 export async function payWithWallet(orderId: number, amount: number, memberId: number) {
   return prisma.$transaction(async (tx) => {
-    const order = await requireOrder(orderId, { id: memberId, role: 'MEMBER' }, tx); const due = remaining(order); const requested = money(amount)
+    const order = await requireOrder(orderId, { id: memberId, role: 'MEMBER' }, tx); assertPayable(order); const due = remaining(order); const requested = money(amount)
     if (requested.greaterThan(due)) throw new HttpError(400, 'Số tiền ví vượt quá số tiền còn phải trả', 'WALLET_AMOUNT_EXCEEDS_DUE')
     const wallet = await tx.wallet.upsert({ where: { memberId }, create: { memberId }, update: {} })
     if (wallet.balance.lessThan(requested)) throw new HttpError(409, 'Số dư ví không đủ', 'INSUFFICIENT_WALLET_BALANCE')
@@ -174,7 +184,7 @@ export async function listPayments(user: { id: number; role: string }, query: { 
 }
 
 function refundable(payment: { amount: Prisma.Decimal; adjustments: { amount: Prisma.Decimal; type: string }[] }) {
-  return payment.amount.minus(payment.adjustments.filter((item) => item.type === 'REFUND').reduce((sum, item) => sum.plus(item.amount), money(0)))
+  return calculateRefundable(payment.amount, payment.adjustments)
 }
 
 export async function requestRefund(paymentId: number, memberId: number, requestedAmount: number, reason: string) {
@@ -202,7 +212,7 @@ export async function reviewRefund(id: number, decision: 'REVIEW' | 'APPROVE' | 
 
 export async function completeRefund(id: number, actorId: number, ipAddress?: string) {
   return prisma.$transaction(async (tx) => {
-    const request = await tx.refundRequest.findUnique({ where: { id }, include: { payment: { include: { adjustments: true, order: true } } } })
+    const request = await tx.refundRequest.findUnique({ where: { id }, include: { payment: { include: { adjustments: true, order: { include: { payments: { include: { adjustments: true } } } } } } } })
     if (!request) throw new HttpError(404, 'Không tìm thấy yêu cầu hoàn tiền', 'REFUND_NOT_FOUND')
     if (request.status === 'COMPLETED') return request
     if (request.status !== 'APPROVED') throw new HttpError(409, 'Yêu cầu chưa được duyệt', 'REFUND_NOT_APPROVED')
@@ -213,10 +223,11 @@ export async function completeRefund(id: number, actorId: number, ipAddress?: st
     const credit = await tx.wallet.updateMany({ where: { id: wallet.id, version: wallet.version }, data: { balance: after, version: { increment: 1 } } })
     if (credit.count !== 1) throw new HttpError(409, 'Số dư ví vừa thay đổi, vui lòng thử lại', 'WALLET_CONFLICT')
     await tx.walletTransaction.create({ data: { walletId: wallet.id, createdById: actorId, type: 'REFUND_CREDIT', amount: approved, balanceBefore: wallet.balance, balanceAfter: after, referenceType: 'RefundRequest', referenceId: String(id), idempotencyKey: `REFUND_CREDIT:${id}`, description: request.reason } })
-    const totalRefunded = request.payment.adjustments.filter((item) => item.type === 'REFUND').reduce((sum, item) => sum.plus(item.amount), approved)
-    const full = totalRefunded.greaterThanOrEqualTo(request.payment.amount)
-    await tx.payment.update({ where: { id: request.paymentId }, data: { status: full ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
-    await tx.serviceOrder.update({ where: { id: request.payment.orderId }, data: { status: full ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
+    const paymentFullyRefunded = isFullyRefunded(request.payment.amount, request.payment.adjustments.filter((item) => item.type === 'REFUND').map((item) => item.amount), approved)
+    await tx.payment.update({ where: { id: request.paymentId }, data: { status: paymentFullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
+    const previousOrderRefunds = request.payment.order.payments.flatMap((item) => item.adjustments).filter((item) => item.type === 'REFUND').reduce((sum, item) => sum.plus(item.amount), money(0))
+    const orderFullyRefunded = isFullyRefunded(request.payment.order.finalAmount, [previousOrderRefunds], approved)
+    await tx.serviceOrder.update({ where: { id: request.payment.orderId }, data: { status: orderFullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
     const completed = await tx.refundRequest.update({ where: { id }, data: { status: 'COMPLETED', adjustmentId: adjustment.id, completedAt: new Date() } })
     await audit(tx, { actorId, action: 'COMPLETE_REFUND_TO_WALLET', entityType: 'RefundRequest', entityId: id, newData: { amount: approved.toString(), walletBalance: after.toString() }, ipAddress })
     return completed
