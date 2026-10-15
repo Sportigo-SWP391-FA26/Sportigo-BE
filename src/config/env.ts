@@ -22,6 +22,12 @@ const schema = z.object({
   GMAIL_WEBHOOK_URL: z.string().url().optional(),
   GMAIL_WEBHOOK_SECRET: z.string().min(32).optional(),
   EMAIL_FROM: z.string().min(1).optional(),
+  VNPAY_TMN_CODE: z.string().min(1).optional(),
+  VNPAY_HASH_SECRET: z.string().min(1).optional(),
+  VNPAY_PAYMENT_URL: z.string().url().default('https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'),
+  VNPAY_API_URL: z.string().url().default('https://sandbox.vnpayment.vn/merchant_webapi/api/transaction'),
+  VNPAY_RETURN_URL: z.string().url().default('http://localhost:5173/member/payments/result'),
+  VNPAY_IPN_URL: z.string().url().optional(),
 })
 
 export const env = schema.parse(process.env)

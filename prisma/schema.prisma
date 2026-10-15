@@ -147,6 +147,13 @@ enum PromotionStatus {
 enum PaymentChannel {
   ONLINE
   COUNTER
+  WALLET
+}
+
+enum WalletTransactionType {
+  REFUND_CREDIT
+  ORDER_DEBIT
+  ORDER_DEBIT_REVERSAL
 }
 
 enum PaymentStatus {
@@ -227,6 +234,7 @@ model User {
   assignedByRequests      RequestAssignment[]      @relation("AssignedBy")
   collectedPayments       Payment[]                @relation("PaymentCollector")
   paymentAdjustments      PaymentAdjustment[]
+  walletTransactionsCreated WalletTransaction[] @relation("WalletTransactionCreator")
   reviewedRefunds         RefundRequest[]
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
@@ -272,6 +280,8 @@ model Member {
   orders             ServiceOrder[]
   refundRequests     RefundRequest[]
   assessments        ProgressAssessment[]
+  wallet             Wallet?
+  promotionUsages    PromotionUsage[]
 }
 
 model Coach {
@@ -605,6 +615,8 @@ model ServiceOrder {
   paidAt         DateTime?
   items          OrderItem[]
   payments       Payment[]
+  invoice        Invoice?
+  promotionUsage PromotionUsage?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -644,8 +656,22 @@ model Promotion {
   perMemberLimit  Int?
   status          PromotionStatus @default(DRAFT)
   orders          ServiceOrder[]
+  usages          PromotionUsage[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+}
+
+model PromotionUsage {
+  id          Int          @id @default(autoincrement())
+  promotionId Int
+  memberId    Int
+  orderId     Int          @unique
+  promotion   Promotion    @relation(fields: [promotionId], references: [id])
+  member      Member       @relation(fields: [memberId], references: [userId])
+  order       ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  usedAt      DateTime     @default(now())
+
+  @@index([promotionId, memberId])
 }
 
 model PaymentMethod {
@@ -671,7 +697,6 @@ model Payment {
   status            PaymentStatus       @default(PENDING)
   paidAt            DateTime?
   onlineTransaction OnlineTransaction?
-  invoice           Invoice?
   adjustments       PaymentAdjustment[]
   refundRequests    RefundRequest[]
   createdAt         DateTime            @default(now())
@@ -693,13 +718,43 @@ model OnlineTransaction {
 
 model Invoice {
   id             Int      @id @default(autoincrement())
-  paymentId      Int      @unique
-  payment        Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  orderId        Int      @unique
+  order          ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   invoiceNumber  String   @unique @db.VarChar(50)
   issuedAt       DateTime @default(now())
   subtotal       Decimal  @db.Decimal(12, 2)
   discountAmount Decimal  @db.Decimal(12, 2)
   totalAmount    Decimal  @db.Decimal(12, 2)
+}
+
+model Wallet {
+  id           Int                 @id @default(autoincrement())
+  memberId     Int                 @unique
+  member       Member              @relation(fields: [memberId], references: [userId], onDelete: Cascade)
+  balance      Decimal             @default(0) @db.Decimal(12, 2)
+  version      Int                 @default(0)
+  transactions WalletTransaction[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+}
+
+model WalletTransaction {
+  id            Int                   @id @default(autoincrement())
+  walletId      Int
+  createdById   Int?
+  wallet        Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  createdBy     User?                 @relation("WalletTransactionCreator", fields: [createdById], references: [id])
+  type          WalletTransactionType
+  amount        Decimal               @db.Decimal(12, 2)
+  balanceBefore Decimal               @db.Decimal(12, 2)
+  balanceAfter  Decimal               @db.Decimal(12, 2)
+  referenceType String                @db.VarChar(60)
+  referenceId   String                @db.VarChar(100)
+  idempotencyKey String               @unique @db.VarChar(120)
+  description   String?
+  createdAt     DateTime              @default(now())
+
+  @@index([walletId, createdAt])
 }
 
 model PaymentAdjustment {
@@ -728,10 +783,13 @@ model RefundRequest {
   reviewedBy      User?              @relation(fields: [reviewedById], references: [id])
   adjustment      PaymentAdjustment? @relation(fields: [adjustmentId], references: [id])
   requestedAmount Decimal            @db.Decimal(12, 2)
+    approvedAmount  Decimal?           @db.Decimal(12, 2)
   reason          String
   status          RefundStatus       @default(REQUESTED)
   requestedAt     DateTime           @default(now())
   reviewedAt      DateTime?
+  reviewNote      String?
+  completedAt     DateTime?
 
   @@index([paymentId, status])
   @@index([memberId, status])
