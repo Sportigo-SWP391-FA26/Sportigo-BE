@@ -288,6 +288,7 @@ model Coach {
   createdWorkoutPlans  WorkoutPlan[]
   assignedWorkoutPlans PlanPrivateEnrollment[]
   assessments          ProgressAssessment[]
+  markedAttendances    SessionAttendance[]
 }
 
 model Notification {
@@ -444,11 +445,16 @@ model SessionAttendance {
   classSessionId Int
   registration   ClassRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   classSession   ClassSession      @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  markedById     Int?
+  markedBy       Coach?            @relation(fields: [markedById], references: [userId])
   status         AttendanceStatus
   checkedAt      DateTime?
   note           String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @default(now()) @updatedAt
 
   @@unique([registrationId, classSessionId])
+  @@index([classSessionId])
 }
 
 model PrivateCourse {
@@ -754,14 +760,16 @@ model WorkoutPlanItem {
   id              Int         @id @default(autoincrement())
   workoutPlanId   Int
   workoutPlan     WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
-  weekNumber      Int?
-  sessionNumber   Int?
+  weekNumber      Int
+  sessionNumber   Int
   itemOrder       Int
   title           String      @db.VarChar(160)
   content         String
   durationMinutes Int?
   sets            Int?
   repetitions     Int?
+  intensity       String?     @db.VarChar(40)
+  note            String?
 
   @@unique([workoutPlanId, weekNumber, sessionNumber, itemOrder])
 }
@@ -778,6 +786,7 @@ model PlanPrivateEnrollment {
   status        PlanAssignmentStatus    @default(ACTIVE)
 
   @@unique([enrollmentId, workoutPlanId])
+  @@index([workoutPlanId])
 }
 
 model ProgressAssessment {
