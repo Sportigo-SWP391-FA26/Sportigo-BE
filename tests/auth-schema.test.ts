@@ -20,8 +20,12 @@ describe('registerSchema', () => {
 })
 
 describe('email verification schemas', () => {
-  it('accepts a secure verification token', () => {
-    expect(verifyEmailSchema.safeParse({ token: 'a'.repeat(64) }).success).toBe(true)
+  it('accepts an email and a six-digit OTP', () => {
+    expect(verifyEmailSchema.safeParse({ email: 'member@sportigo.vn', code: '123456' }).success).toBe(true)
+  })
+
+  it('rejects a verification code that is not six digits', () => {
+    expect(verifyEmailSchema.safeParse({ email: 'member@sportigo.vn', code: '12345a' }).success).toBe(false)
   })
 
   it('normalizes the email used to resend verification', () => {

@@ -14,4 +14,18 @@ describe('GET /health', () => {
     expect(response.status).toBe(200)
     expect(response.body.status).toBe('ok')
   })
+
+  it('allows the local frontend origin used by the in-app browser', async () => {
+    const response = await request(app)
+      .options('/api/auth/register')
+      .set('Origin', 'http://127.0.0.1:5173')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type')
+
+    expect(response.status).toBe(204)
+    expect(response.headers['access-control-allow-origin']).toBe(
+      'http://127.0.0.1:5173',
+    )
+    expect(response.headers['access-control-allow-credentials']).toBe('true')
+  })
 })

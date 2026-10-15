@@ -1,6 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { env } from '../../config/env.js'
+import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { HttpError } from '../../lib/http-error.js'
 import type { LoginInput, RegisterInput } from './auth.schema.js'
 import {
@@ -10,7 +9,7 @@ import {
   findRefreshToken,
   findUserByEmail,
   findUserByIdentifier,
-  findVerificationToken,
+  findLatestVerificationForEmail,
   replaceVerificationToken,
   revokeRefreshToken,
   saveRefreshToken,
@@ -18,7 +17,7 @@ import {
 import { sendVerificationEmail } from './email.service.js'
 import { createAccessToken, createRefreshToken, verifyRefreshToken } from './token.service.js'
 
-const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000
+const VERIFICATION_TTL_MS = 10 * 60 * 1000
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
@@ -34,11 +33,9 @@ async function createSession(user: { id: number; role: { name: string } }) {
 }
 
 async function issueVerification(user: { id: number; email: string; displayName: string }) {
-  const token = randomBytes(32).toString('hex')
-  await replaceVerificationToken(user.id, hash(token), new Date(Date.now() + VERIFICATION_TTL_MS))
-  const verificationUrl = env.APP_URL + '/verify-email?token=' + token
-  await sendVerificationEmail({ email: user.email, displayName: user.displayName, verificationUrl })
-  return env.NODE_ENV === 'production' ? undefined : verificationUrl
+  const code = randomInt(100_000, 1_000_000).toString()
+  await replaceVerificationToken(user.id, hash(`${user.id}:${code}`), new Date(Date.now() + VERIFICATION_TTL_MS))
+  await sendVerificationEmail({ email: user.email, displayName: user.displayName, code })
 }
 
 export async function login(input: LoginInput) {
@@ -64,12 +61,11 @@ export async function register(input: RegisterInput) {
     passwordHash: await bcrypt.hash(input.password, 12),
   })
   try {
-    const verificationUrl = await issueVerification(user)
+    await issueVerification(user)
     return {
       message: 'Đăng ký thành công. Vui lòng kiểm tra email để kích hoạt tài khoản.',
       email: user.email,
       emailSent: true,
-      verificationUrl,
     }
   } catch (error) {
     // The account and verification token already exist. Returning a successful
@@ -85,10 +81,13 @@ export async function register(input: RegisterInput) {
   }
 }
 
-export async function verifyEmail(token: string) {
-  const record = await findVerificationToken(hash(token))
-  if (!record || record.usedAt || record.expiresAt <= new Date()) {
-    throw new HttpError(400, 'Liên kết xác minh không hợp lệ hoặc đã hết hạn', 'INVALID_VERIFICATION_TOKEN')
+export async function verifyEmail(email: string, code: string) {
+  const record = await findLatestVerificationForEmail(email)
+  const suppliedHash = Buffer.from(hash(`${record?.userId ?? 0}:${code}`))
+  const storedHash = Buffer.from(record?.tokenHash ?? hash('invalid'))
+  const matches = suppliedHash.length === storedHash.length && timingSafeEqual(suppliedHash, storedHash)
+  if (!record || !matches || record.expiresAt <= new Date()) {
+    throw new HttpError(400, 'Mã OTP không đúng hoặc đã hết hạn', 'INVALID_VERIFICATION_CODE')
   }
   await activateVerifiedUser(record.id, record.userId)
   return { message: 'Email đã được xác minh. Bạn có thể đăng nhập.' }
@@ -97,8 +96,8 @@ export async function verifyEmail(token: string) {
 export async function resendVerification(email: string) {
   const user = await findUserByEmail(email)
   if (!user || user.emailVerifiedAt) return { message: 'Nếu tài khoản cần xác minh, email mới sẽ được gửi.' }
-  const verificationUrl = await issueVerification(user)
-  return { message: 'Email xác minh mới đã được gửi.', verificationUrl }
+  await issueVerification(user)
+  return { message: 'Mã OTP xác minh mới đã được gửi.' }
 }
 
 export async function refresh(rawToken: string) {

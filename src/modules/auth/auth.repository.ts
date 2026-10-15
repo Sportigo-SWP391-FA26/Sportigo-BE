@@ -55,8 +55,12 @@ export function replaceVerificationToken(userId: number, tokenHash: string, expi
   ])
 }
 
-export function findVerificationToken(tokenHash: string) {
-  return prisma.emailVerificationToken.findUnique({ where: { tokenHash }, include: { user: true } })
+export function findLatestVerificationForEmail(email: string) {
+  return prisma.emailVerificationToken.findFirst({
+    where: { user: { email }, usedAt: null },
+    include: { user: true },
+    orderBy: { createdAt: 'desc' },
+  })
 }
 
 export function activateVerifiedUser(tokenId: number, userId: number) {

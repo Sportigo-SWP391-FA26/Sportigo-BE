@@ -16,6 +16,13 @@ import { getPlanStateOrThrow } from './workout-plan.service.js'
 
 type Slot = { weekNumber: number; sessionNumber: number }
 
+function requireSlot(slot: { weekNumber: number | null; sessionNumber: number | null }): Slot {
+  if (slot.weekNumber === null || slot.sessionNumber === null) {
+    throw new HttpError(422, 'Mục giáo án chưa được gán tuần hoặc buổi', 'ITEM_SLOT_REQUIRED')
+  }
+  return { weekNumber: slot.weekNumber, sessionNumber: slot.sessionNumber }
+}
+
 // Không dùng số âm làm thứ tự tạm vì CHECK itemOrder >= 1 (BR-45),
 // nên đẩy tạm lên vùng số lớn rồi mới gán lại thứ tự thật.
 const TEMPORARY_ORDER_OFFSET = 100_000
@@ -106,11 +113,12 @@ export async function deleteItem(planId: number, itemId: number) {
   await runInTransaction(async (tx) => {
     await itemRepository.deleteItem(tx, itemId)
     // BR-45: giữ thứ tự liên tục trong tuần/buổi sau khi xóa
-    const remaining = await itemRepository.findSlotItems(tx, planId, item)
+    const itemSlot = requireSlot(item)
+    const remaining = await itemRepository.findSlotItems(tx, planId, itemSlot)
     await renumberSlot(
       tx,
       planId,
-      item,
+      itemSlot,
       remaining.map((row) => row.id),
     )
   })
@@ -128,6 +136,7 @@ export async function reorderItems(planId: number, input: ReorderItemsInput) {
       'ITEM_NOT_IN_PLAN',
     )
   }
+  const validSlot = requireSlot(slot)
 
   const sameSlot = items.every(
     (item) =>
@@ -147,15 +156,15 @@ export async function reorderItems(planId: number, input: ReorderItemsInput) {
     .map((item) => item.itemId)
 
   await runInTransaction(async (tx) => {
-    const slotItems = await itemRepository.findSlotItems(tx, planId, slot)
+    const slotItems = await itemRepository.findSlotItems(tx, planId, validSlot)
     if (slotItems.length !== orderedIds.length) {
       throw new HttpError(
         422,
-        `Phải gửi đủ ${slotItems.length} mục của tuần ${slot.weekNumber}, buổi ${slot.sessionNumber}`,
+        `Phải gửi đủ ${slotItems.length} mục của tuần ${validSlot.weekNumber}, buổi ${validSlot.sessionNumber}`,
         'REORDER_INCOMPLETE',
       )
     }
-    await renumberSlot(tx, planId, slot, orderedIds)
+    await renumberSlot(tx, planId, validSlot, orderedIds)
   })
 
   return itemRepository.findItems(planId)
