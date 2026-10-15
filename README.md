@@ -16,4 +16,11 @@ Health check: `GET http://localhost:3000/health`.
 
 Swagger UI: `http://localhost:3000/api-docs`.
 
+## Gửi email xác minh
+
+Backend gọi một Google Apps Script qua HTTPS để tương thích với Render Free
+(Render chặn các cổng SMTP). Apps Script gửi mail bằng Gmail của Sportigo và xác
+thực request bằng secret. Cấu hình `GMAIL_WEBHOOK_URL`, `GMAIL_WEBHOOK_SECRET`
+và `EMAIL_FROM` theo `.env.example`; không commit URL/secret triển khai vào Git.
+
 Xem [ARCHITECTURE.md](./ARCHITECTURE.md) để biết cấu trúc thư mục và quy tắc phụ thuộc.

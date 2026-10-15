@@ -25,7 +25,9 @@ services:
         sync: false
       - key: APP_URL
         sync: false
-      - key: RESEND_API_KEY
+      - key: GMAIL_WEBHOOK_URL
         sync: false
-      - key: RESEND_FROM_EMAIL
+      - key: GMAIL_WEBHOOK_SECRET
+        sync: false
+      - key: EMAIL_FROM
         sync: false
