@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express'
 import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
-import { loginSchema, refreshSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from './auth.schema.js'
+import { forgotPasswordSchema, googleLoginSchema, loginSchema, refreshSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, verifyEmailSchema } from './auth.schema.js'
 import * as authService from './auth.service.js'
 
 const REFRESH_COOKIE = 'sportigo_refresh'
@@ -36,6 +36,23 @@ export const verifyEmail: RequestHandler = async (request, response) => {
 export const resendVerification: RequestHandler = async (request, response) => {
   const { email } = resendVerificationSchema.parse(request.body)
   response.json(await authService.resendVerification(email))
+}
+
+export const forgotPassword: RequestHandler = async (request, response) => {
+  const { email } = forgotPasswordSchema.parse(request.body)
+  response.json(await authService.forgotPassword(email))
+}
+
+export const resetPassword: RequestHandler = async (request, response) => {
+  const input = resetPasswordSchema.parse(request.body)
+  response.json(await authService.resetPassword(input))
+}
+
+export const googleLogin: RequestHandler = async (request, response) => {
+  const { credential } = googleLoginSchema.parse(request.body)
+  const result = await authService.loginWithGoogle(credential)
+  response.cookie(REFRESH_COOKIE, result.refreshToken, cookieOptions)
+  response.json({ accessToken: result.accessToken, user: result.user })
 }
 
 export const refresh: RequestHandler = async (request, response) => {

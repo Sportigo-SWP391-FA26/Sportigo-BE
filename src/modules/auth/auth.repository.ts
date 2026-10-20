@@ -17,7 +17,7 @@ export function findExistingUser(email: string, phone: string) {
 export function createMember(data: {
   displayName: string
   email: string
-  phone: string
+  phone?: string
   passwordHash: string
 }) {
   return prisma.user.create({
@@ -80,4 +80,44 @@ export function findRefreshToken(tokenHash: string) {
 
 export function revokeRefreshToken(tokenHash: string) {
   return prisma.refreshToken.updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } })
+}
+
+export function replacePasswordResetToken(userId: number, tokenHash: string, expiresAt: Date) {
+  return prisma.$transaction([
+    prisma.passwordResetToken.deleteMany({ where: { userId, usedAt: null } }),
+    prisma.passwordResetToken.create({ data: { userId, tokenHash, expiresAt } }),
+  ])
+}
+
+export function findLatestPasswordResetForEmail(email: string) {
+  return prisma.passwordResetToken.findFirst({
+    where: { user: { email }, usedAt: null },
+    include: { user: true },
+    orderBy: { createdAt: 'desc' },
+  })
+}
+
+export function consumePasswordReset(tokenId: number, userId: number, passwordHash: string) {
+  return prisma.$transaction(async (tx) => {
+    const consumed = await tx.passwordResetToken.updateMany({
+      where: { id: tokenId, userId, usedAt: null, expiresAt: { gt: new Date() } },
+      data: { usedAt: new Date() },
+    })
+    if (consumed.count !== 1) return false
+    await tx.user.update({ where: { id: userId }, data: { passwordHash } })
+    await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } })
+    return true
+  })
+}
+
+export function activateGoogleUser(userId: number) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { emailVerifiedAt: new Date(), status: 'ACTIVE' },
+    include: { role: true },
+  })
+}
+
+export function createGoogleMember(data: { email: string; displayName: string; passwordHash: string }) {
+  return createMember(data)
 }

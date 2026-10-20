@@ -28,3 +28,21 @@ export const verifyEmailSchema = z.object({
 })
 export const resendVerificationSchema = z.object({ email: z.string().trim().toLowerCase().email() })
 export const refreshSchema = z.object({ refreshToken: z.string().optional() })
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+})
+
+export const resetPasswordSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email(),
+    code: z.string().trim().regex(/^\d{6}$/, 'Mã OTP phải gồm đúng 6 chữ số'),
+    password: z.string().min(8).max(72),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Mật khẩu xác nhận không khớp',
+    path: ['confirmPassword'],
+  })
+
+export const googleLoginSchema = z.object({ credential: z.string().min(1) })

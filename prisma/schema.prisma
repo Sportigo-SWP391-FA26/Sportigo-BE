@@ -225,6 +225,7 @@ model User {
   coach                   Coach?
   refreshTokens           RefreshToken[]
   emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
   notifications           Notification[]
   auditLogs               AuditLog[]
   scheduleChanges         ScheduleChange[]
@@ -243,6 +244,18 @@ model User {
 }
 
 model EmailVerificationToken {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
   id        Int       @id @default(autoincrement())
   tokenHash String    @unique
   userId    Int

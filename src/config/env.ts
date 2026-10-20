@@ -16,6 +16,7 @@ const schema = z.object({
     .min(1)
     .default('http://localhost:5173,http://127.0.0.1:5173'),
   APP_URL: z.string().url().default('http://localhost:5173'),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().default('Sportigo <onboarding@resend.dev>'),
   ATTENDANCE_EDIT_WINDOW_HOURS: z.coerce.number().int().positive().default(24),

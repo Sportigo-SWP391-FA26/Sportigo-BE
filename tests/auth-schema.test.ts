@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { registerSchema, resendVerificationSchema, verifyEmailSchema } from '../src/modules/auth/auth.schema.js'
+import { forgotPasswordSchema, googleLoginSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, verifyEmailSchema } from '../src/modules/auth/auth.schema.js'
 
 describe('registerSchema', () => {
   const validInput = {
@@ -30,5 +30,17 @@ describe('email verification schemas', () => {
 
   it('normalizes the email used to resend verification', () => {
     expect(resendVerificationSchema.parse({ email: ' MEMBER@SPORTIGO.VN ' }).email).toBe('member@sportigo.vn')
+  })
+})
+
+describe('password recovery and Google schemas', () => {
+  it('normalizes the recovery email and accepts a valid reset payload', () => {
+    expect(forgotPasswordSchema.parse({ email: ' MEMBER@SPORTIGO.VN ' }).email).toBe('member@sportigo.vn')
+    expect(resetPasswordSchema.safeParse({ email: 'member@sportigo.vn', code: '123456', password: 'StrongPass123!', confirmPassword: 'StrongPass123!' }).success).toBe(true)
+  })
+
+  it('rejects invalid reset data and an empty Google credential', () => {
+    expect(resetPasswordSchema.safeParse({ email: 'member@sportigo.vn', code: '123', password: 'StrongPass123!', confirmPassword: 'different' }).success).toBe(false)
+    expect(googleLoginSchema.safeParse({ credential: '' }).success).toBe(false)
   })
 })

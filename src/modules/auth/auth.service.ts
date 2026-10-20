@@ -1,23 +1,31 @@
 import bcrypt from 'bcryptjs'
 import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
+import { OAuth2Client } from 'google-auth-library'
+import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
 import type { LoginInput, RegisterInput } from './auth.schema.js'
 import {
   activateVerifiedUser,
+  activateGoogleUser,
+  consumePasswordReset,
+  createGoogleMember,
   createMember,
   findExistingUser,
   findRefreshToken,
   findUserByEmail,
   findUserByIdentifier,
   findLatestVerificationForEmail,
+  findLatestPasswordResetForEmail,
   replaceVerificationToken,
+  replacePasswordResetToken,
   revokeRefreshToken,
   saveRefreshToken,
 } from './auth.repository.js'
-import { sendVerificationEmail } from './email.service.js'
+import { sendPasswordResetEmail, sendVerificationEmail } from './email.service.js'
 import { createAccessToken, createRefreshToken, verifyRefreshToken } from './token.service.js'
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000
+const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
@@ -98,6 +106,69 @@ export async function resendVerification(email: string) {
   if (!user || user.emailVerifiedAt) return { message: 'Nếu tài khoản cần xác minh, email mới sẽ được gửi.' }
   await issueVerification(user)
   return { message: 'Mã OTP xác minh mới đã được gửi.' }
+}
+
+export async function forgotPassword(email: string) {
+  const user = await findUserByEmail(email)
+  if (user && user.status === 'ACTIVE') {
+    const code = randomInt(100_000, 1_000_000).toString()
+    await replacePasswordResetToken(
+      user.id,
+      hash(`${user.id}:${code}`),
+      new Date(Date.now() + PASSWORD_RESET_TTL_MS),
+    )
+    await sendPasswordResetEmail({ email: user.email, displayName: user.displayName, code })
+  }
+  return { message: 'Nếu email tồn tại trong hệ thống, mã OTP khôi phục đã được gửi.' }
+}
+
+export async function resetPassword(input: {
+  email: string
+  code: string
+  password: string
+  confirmPassword: string
+}) {
+  const record = await findLatestPasswordResetForEmail(input.email)
+  const suppliedHash = Buffer.from(hash(`${record?.userId ?? 0}:${input.code}`))
+  const storedHash = Buffer.from(record?.tokenHash ?? hash('invalid'))
+  const matches = suppliedHash.length === storedHash.length && timingSafeEqual(suppliedHash, storedHash)
+  if (!record || !matches || record.expiresAt <= new Date()) {
+    throw new HttpError(400, 'Mã OTP không đúng hoặc đã hết hạn', 'INVALID_RESET_CODE')
+  }
+  const consumed = await consumePasswordReset(record.id, record.userId, await bcrypt.hash(input.password, 12))
+  if (!consumed) throw new HttpError(400, 'Mã OTP không đúng hoặc đã hết hạn', 'INVALID_RESET_CODE')
+  return { message: 'Mật khẩu đã được cập nhật. Vui lòng đăng nhập lại.' }
+}
+
+export async function loginWithGoogle(credential: string) {
+  if (!env.GOOGLE_CLIENT_ID) {
+    throw new HttpError(503, 'Đăng nhập Google chưa được cấu hình', 'GOOGLE_AUTH_NOT_CONFIGURED')
+  }
+  const ticket = await new OAuth2Client(env.GOOGLE_CLIENT_ID).verifyIdToken({
+    idToken: credential,
+    audience: env.GOOGLE_CLIENT_ID,
+  }).catch(() => null)
+  const payload = ticket?.getPayload()
+  if (!payload?.email || !payload.email_verified) {
+    throw new HttpError(401, 'Tài khoản Google không hợp lệ', 'INVALID_GOOGLE_CREDENTIAL')
+  }
+
+  let user = await findUserByEmail(payload.email.toLowerCase())
+  if (!user) {
+    const created = await createGoogleMember({
+      email: payload.email.toLowerCase(),
+      displayName: payload.name?.trim() || payload.email.split('@')[0] || payload.email,
+      passwordHash: await bcrypt.hash(randomUUID(), 12),
+    })
+    user = await activateGoogleUser(created.id)
+  } else if (!user.emailVerifiedAt && user.status === 'INACTIVE') {
+    user = await activateGoogleUser(user.id)
+  }
+
+  if (user.status !== 'ACTIVE') {
+    throw new HttpError(403, 'Tài khoản hiện không hoạt động', 'ACCOUNT_INACTIVE')
+  }
+  return { ...(await createSession(user)), user: publicUser(user) }
 }
 
 export async function refresh(rawToken: string) {
