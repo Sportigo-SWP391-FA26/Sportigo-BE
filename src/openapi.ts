@@ -14,7 +14,12 @@ export const openApiDocument = {
     { url: 'https://sportigo-api-lcpy.onrender.com/api', description: 'Render production' },
   ],
   tags: [
-    { name: 'Authentication' }, { name: 'Orders' }, { name: 'Payments' },
+    { name: 'Login', description: 'Đăng nhập thường và đăng nhập Google' },
+    { name: 'Registration', description: 'Đăng ký tài khoản Member' },
+    { name: 'Email Verification', description: 'Xác minh email bằng OTP' },
+    { name: 'Password Recovery', description: 'Quên và đặt lại mật khẩu' },
+    { name: 'Session', description: 'Làm mới phiên và đăng xuất' },
+    { name: 'Orders' }, { name: 'Payments' },
     { name: 'Wallet' }, { name: 'Promotions' }, { name: 'Refunds' },
     { name: 'Invoices' }, { name: 'Reports' }, { name: 'Audit' },
   ],
