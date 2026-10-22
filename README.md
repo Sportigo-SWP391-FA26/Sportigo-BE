@@ -16,6 +16,10 @@ Health check: `GET http://localhost:3000/health`.
 
 Swagger UI: `http://localhost:3000/api-docs`.
 
+Swagger hiện mô tả các API Authentication, Training, Order, Payment, Wallet,
+Promotion, Refund, Invoice, Report và Audit. Với endpoint được bảo vệ, đăng nhập,
+sao chép `accessToken`, chọn **Authorize** và nhập token theo dạng `Bearer <token>`.
+
 ## Gửi email xác minh
 
 Backend gọi một Google Apps Script qua HTTPS để tương thích với Render Free
