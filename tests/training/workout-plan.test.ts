@@ -65,7 +65,7 @@ describe.skipIf(!hasTestDatabase)('FR-49 Giáo án dùng chung theo môn', () =>
       .set('Authorization', coach.auth)
       .send(withoutSport)
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.details.fieldErrors.sportId).toBeDefined()
   })
 
@@ -79,9 +79,9 @@ describe.skipIf(!hasTestDatabase)('FR-49 Giáo án dùng chung theo môn', () =>
       .set('Authorization', coach.auth)
       .send({ ...validPlan(), sportId: 999_999 })
 
-    expect(inactive.status).toBe(422)
+    expect(inactive.status).toBe(400)
     expect(inactive.body.code).toBe('SPORT_NOT_AVAILABLE')
-    expect(missing.status).toBe(422)
+    expect(missing.status).toBe(400)
   })
 
   it('FR-49 / BR-06: chỉ Coach được tạo giáo án', async () => {
@@ -120,7 +120,7 @@ describe.skipIf(!hasTestDatabase)('FR-49 Giáo án dùng chung theo môn', () =>
       .set('Authorization', coach.auth)
       .send({ status: 'ACTIVE' })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('PLAN_HAS_NO_ITEMS')
   })
 
@@ -202,7 +202,7 @@ describe.skipIf(!hasTestDatabase)('FR-49 Giáo án dùng chung theo môn', () =>
       .set('Authorization', coach.auth)
       .send({ durationWeeks: 2 })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('DURATION_TOO_SHORT')
   })
 

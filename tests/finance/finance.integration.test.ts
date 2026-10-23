@@ -10,9 +10,11 @@ import {
   createGroupClass,
   createManager,
   createMember,
+  createPrivateCourse,
   createReceptionist,
   createRegistration,
   createSport,
+  createEnrollment,
   resetDatabase,
 } from '../training/fixtures.js'
 
@@ -134,6 +136,90 @@ describe.skipIf(!hasTestDatabase)('FR-37–46, FR-57–60 Finance integration', 
     expect(duplicateIpn.body).toEqual({ RspCode: '02', Message: 'Order already confirmed' })
     expect(await prisma.payment.count({ where: { orderId: scenario.order.id, status: 'SUCCESS' } })).toBe(1)
     expect(await prisma.invoice.count({ where: { orderId: scenario.order.id } })).toBe(1)
+  })
+
+  it('activates a private enrollment only after full payment and processes repeated VNPay callbacks once', async () => {
+    const member = await createMember()
+    const coach = await createCoach()
+    const sport = await createSport()
+    const course = await createPrivateCourse({ sportId: sport.id })
+    const enrollment = await createEnrollment({
+      memberId: member.id,
+      coachId: coach.id,
+      privateCourseId: course.id,
+      status: 'PENDING_PAYMENT',
+    })
+    const order = await createServiceOrder({
+      memberId: member.id,
+      itemType: 'PRIVATE_COURSE',
+      itemName: course.name,
+      unitPrice: 6_000_000,
+      privateEnrollmentId: enrollment.id,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+    })
+    const started = await request(app)
+      .post(`/api/orders/${order.id}/payments/vnpay`)
+      .set('Authorization', member.auth)
+      .send()
+    const payment = await prisma.payment.findUniqueOrThrow({ where: { id: started.body.paymentId } })
+    const callbackParams = {
+      vnp_TxnRef: payment.reference,
+      vnp_Amount: '600000000',
+      vnp_ResponseCode: '00',
+      vnp_TransactionStatus: '00',
+      vnp_TransactionNo: 'PRIVATE-TEST-123',
+    }
+    const signedCallback = { ...callbackParams, vnp_SecureHash: signVnpay(callbackParams) }
+    const first = await request(app).get('/api/payments/vnpay/ipn').query(signedCallback)
+    const repeated = await request(app).get('/api/payments/vnpay/ipn').query(signedCallback)
+
+    expect(started.status).toBe(201)
+    expect(first.body.RspCode).toBe('00')
+    expect(repeated.body.RspCode).toBe('02')
+    expect(await prisma.privateCourseEnrollment.findUniqueOrThrow({ where: { id: enrollment.id } }))
+      .toMatchObject({ status: 'ACTIVE', remainingSessions: enrollment.remainingSessions })
+    expect(await prisma.payment.count({ where: { orderId: order.id, status: 'SUCCESS' } })).toBe(1)
+    expect(await prisma.invoice.count({ where: { orderId: order.id } })).toBe(1)
+  })
+
+  it('uses the idempotent finance transaction for the legacy full-wallet payment route', async () => {
+    const member = await createMember()
+    const coach = await createCoach()
+    const sport = await createSport()
+    const course = await createPrivateCourse({ sportId: sport.id })
+    const enrollment = await createEnrollment({
+      memberId: member.id,
+      coachId: coach.id,
+      privateCourseId: course.id,
+      status: 'PENDING_PAYMENT',
+    })
+    await prisma.wallet.create({ data: { memberId: member.id, balance: 6_000_000 } })
+    const order = await createServiceOrder({
+      memberId: member.id,
+      itemType: 'PRIVATE_COURSE',
+      itemName: course.name,
+      unitPrice: 6_000_000,
+      privateEnrollmentId: enrollment.id,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+    })
+
+    const paid = await request(app)
+      .post(`/api/orders/${order.id}/pay`)
+      .set('Authorization', member.auth)
+      .send()
+    const duplicate = await request(app)
+      .post(`/api/orders/${order.id}/pay`)
+      .set('Authorization', member.auth)
+      .send()
+
+    expect(paid.status).toBe(200)
+    expect(duplicate.status).toBe(409)
+    expect(await prisma.privateCourseEnrollment.findUniqueOrThrow({ where: { id: enrollment.id } }))
+      .toMatchObject({ status: 'ACTIVE' })
+    expect(await prisma.payment.count({ where: { orderId: order.id, status: 'SUCCESS' } })).toBe(1)
+    expect(await prisma.walletTransaction.count({
+      where: { walletId: (await prisma.wallet.findUniqueOrThrow({ where: { memberId: member.id } })).id, type: 'ORDER_DEBIT' },
+    })).toBe(1)
   })
 
   it('hoàn một phần vào ví đúng một lần rồi dùng ví thanh toán kết hợp', async () => {
