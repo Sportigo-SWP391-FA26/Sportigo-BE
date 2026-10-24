@@ -25,7 +25,7 @@ export const updateProfileSchema = z
     bio: z.string().trim().max(1000).nullable(),
   })
   .partial()
-  // note: strict → mọi trường lạ (email, role, status, memberCode...) bị từ chối với 422
+  // note: strict → mọi trường lạ (email, role, status, memberCode...) bị từ chối với 400 VALIDATION_ERROR
   .strict()
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Cần ít nhất một trường để cập nhật',

@@ -76,11 +76,13 @@ export const usersPaths = {
       },
       responses: {
         '200': ok,
-        '400': { description: 'Gửi trường không thuộc role (FIELD_NOT_ALLOWED)' },
+        '400': {
+          description:
+            'VALIDATION_ERROR (dữ liệu sai hoặc có trường lạ như email/role/status) hoặc FIELD_NOT_ALLOWED (gửi trường không thuộc role)',
+        },
         '401': unauthorized,
         '403': inactive,
         '409': { description: 'Số điện thoại đã được sử dụng (ACCOUNT_EXISTS)' },
-        '422': { description: 'Dữ liệu không hợp lệ hoặc có trường không được phép' },
       },
     },
   },
@@ -123,10 +125,12 @@ export const usersPaths = {
             },
           },
         },
-        '400': { description: 'INVALID_CURRENT_PASSWORD hoặc SAME_AS_CURRENT_PASSWORD' },
+        '400': {
+          description:
+            'INVALID_CURRENT_PASSWORD, SAME_AS_CURRENT_PASSWORD, hoặc VALIDATION_ERROR (mật khẩu mới không đạt chính sách / xác nhận không khớp)',
+        },
         '401': unauthorized,
         '403': inactive,
-        '422': { description: 'Mật khẩu mới không đạt chính sách hoặc xác nhận không khớp' },
       },
     },
   },

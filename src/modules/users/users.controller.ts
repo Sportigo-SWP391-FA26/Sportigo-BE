@@ -11,13 +11,13 @@ export const getMe: RequestHandler = async (request, response) => {
 }
 
 export const updateMe: RequestHandler = async (request, response) => {
-  // note: parse lỗi → ZodError → errorHandler trả 422 VALIDATION_ERROR
+  // note: parse lỗi → ZodError → errorHandler trả 400 VALIDATION_ERROR
   const input = updateProfileSchema.parse(request.body)
   response.json(await usersService.updateMe(getAuthUser(request).id, input))
 }
 
 export const changePassword: RequestHandler = async (request, response) => {
-  // note: mật khẩu yếu hoặc confirmPassword không khớp → 422 trước khi chạm DB
+  // note: mật khẩu yếu hoặc confirmPassword không khớp → 400 VALIDATION_ERROR trước khi chạm DB
   const input = changePasswordSchema.parse(request.body)
   const result = await usersService.changePassword(getAuthUser(request).id, input)
   // note: cookie dùng cùng tên/option (path /api/auth) với login nên /auth/refresh đọc được; refreshToken không trả trong body
