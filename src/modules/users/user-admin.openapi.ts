@@ -83,6 +83,21 @@ export const userAdminPaths = {
       },
     },
   },
+  '/members/{id}': {
+    get: {
+      tags: ['User Management'],
+      summary: 'Hồ sơ tổng hợp của Member (FR-10)',
+      description:
+        'Center Manager, Receptionist xem đầy đủ: thông tin, đăng ký lớp + tóm tắt điểm danh, khóa 1-1, 10 đơn thanh toán gần nhất, 5 đánh giá gần nhất. Coach chỉ xem học viên có đăng ký CONFIRMED trong lớp của mình hoặc khóa 1-1 ACTIVE/COMPLETED với mình (khác → 404); chỉ thấy lớp/khóa/đánh giá của mình; email, phone, payments = null; scope = COACH.',
+      security,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+      responses: {
+        '200': { description: 'Hồ sơ tổng hợp' },
+        ...common,
+        '404': { description: 'MEMBER_NOT_FOUND' },
+      },
+    },
+  },
   '/staff': {
     get: {
       tags: ['User Management'],
