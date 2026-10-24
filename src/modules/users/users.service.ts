@@ -1,8 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { HttpError } from '../../lib/http-error.js'
-import { createAccessToken } from '../auth/token.service.js'
-// TODO: import createSession từ auth (Tài chưa export)
-// import { createSession } from '../auth/auth.service.js'
+// TEMP(FR-62): createSession được export tạm từ auth.service.ts, xem comment tại đó
+import { createSession } from '../auth/auth.service.js'
 import {
   changePassword as savePassword,
   findOtherUserByPhone,
@@ -123,8 +122,6 @@ export async function changePassword(userId: number, input: ChangePasswordInput)
   await savePassword(userId, await bcrypt.hash(input.newPassword, 12))
 
   const message = 'Đổi mật khẩu thành công. Các phiên đăng nhập khác đã bị đăng xuất.'
-  // TODO: import createSession từ auth (Tài chưa export) — khi có thì thay dòng return bên dưới bằng:
-  // return { message, ...(await createSession(user)) }
-  // note: tạm chỉ cấp access token; mọi refresh token đã bị thu hồi nên phiên này hết sau JWT_ACCESS_EXPIRES_IN (15 phút)
-  return { message, accessToken: createAccessToken({ userId: user.id, role: user.role.name }) }
+  // note: mọi refresh token (kể cả của phiên này) vừa bị thu hồi → cấp phiên mới để người đang đổi không bị đăng xuất
+  return { message, ...(await createSession(user)) }
 }

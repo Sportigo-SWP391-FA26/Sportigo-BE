@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
-// TODO: gọi audit() từ src/lib/audit.ts (Tài chưa tách)
-// import { audit } from '../../lib/audit.js'
+// TEMP(FR-62): src/lib/audit.ts là bản tạm, xem comment tại đó
+import { audit } from '../../lib/audit.js'
 
 export const profileInclude = {
   role: true,
@@ -47,8 +47,8 @@ export function changePassword(userId: number, passwordHash: string) {
   return prisma.$transaction(async (tx) => {
     await tx.user.update({ where: { id: userId }, data: { passwordHash } })
     await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } })
-    // TODO: gọi audit() từ src/lib/audit.ts (Tài chưa tách) — không ghi hash vào oldData/newData
-    // await audit(tx, { actorId: userId, action: 'PASSWORD_CHANGED', entityType: 'User', entityId: userId })
+    // note: ghi log trong cùng transaction; không truyền oldData/newData để hash mật khẩu không bao giờ vào log
+    await audit(tx, { actorId: userId, action: 'PASSWORD_CHANGED', entityType: 'User', entityId: userId })
   })
 }
 

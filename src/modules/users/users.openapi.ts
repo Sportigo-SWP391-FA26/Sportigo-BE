@@ -89,7 +89,7 @@ export const usersPaths = {
       tags: ['Profile'],
       summary: 'Đổi mật khẩu',
       description:
-        'Yêu cầu mật khẩu hiện tại. Thành công thì thu hồi mọi refresh token và trả access token mới cho phiên hiện tại. Sai mật khẩu hiện tại trả 400 (không phải 401) để client không tự refresh token.',
+        'Yêu cầu mật khẩu hiện tại. Thành công thì thu hồi mọi refresh token, ghi Audit Log PASSWORD_CHANGED và cấp phiên mới cho thiết bị hiện tại: access token trong body, refresh token trong cookie sportigo_refresh (path /api/auth). Sai mật khẩu hiện tại trả 400 (không phải 401) để client không tự refresh token.',
       security,
       requestBody: {
         required: true,
@@ -111,6 +111,9 @@ export const usersPaths = {
       responses: {
         '200': {
           description: 'Đổi mật khẩu thành công',
+          headers: {
+            'Set-Cookie': { description: 'sportigo_refresh=<refresh token mới>; HttpOnly; Path=/api/auth', schema: { type: 'string' } },
+          },
           content: {
             'application/json': {
               schema: {

@@ -33,7 +33,9 @@ function publicUser(user: { id: number; email: string; phone: string | null; dis
   return { id: user.id, email: user.email, phone: user.phone, displayName: user.displayName, role: user.role.name }
 }
 
-async function createSession(user: { id: number; role: { name: string } }) {
+// TEMP(FR-62): thêm "export" để users.service cấp phiên mới sau khi đổi mật khẩu; logic không đổi.
+// Khi Tài export chính thức (hoặc đổi tên/chuyển chỗ) thì sửa import trong users.service.ts và xóa comment này.
+export async function createSession(user: { id: number; role: { name: string } }) {
   const tokenId = randomUUID()
   const refreshToken = createRefreshToken({ userId: user.id, role: user.role.name, tokenId })
   await saveRefreshToken(hash(refreshToken), user.id, new Date(Date.now() + REFRESH_TTL_MS))
