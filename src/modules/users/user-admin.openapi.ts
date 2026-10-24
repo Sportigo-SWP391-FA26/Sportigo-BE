@@ -60,4 +60,37 @@ export const userAdminPaths = {
       },
     },
   },
+  '/users/{id}/status': {
+    patch: {
+      tags: ['User Management'],
+      summary: 'Khóa hoặc mở khóa tài khoản (FR-06)',
+      description:
+        'Chỉ Center Manager. Khóa: thu hồi mọi refresh token, chặn đăng nhập mới. Mở khóa: về ACTIVE (hoặc INACTIVE nếu email chưa xác minh). Ghi Audit Log USER_LOCKED/USER_UNLOCKED và gửi thông báo ACCOUNT_STATUS.',
+      security,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['status', 'reason'],
+              properties: {
+                status: { type: 'string', enum: ['ACTIVE', 'LOCKED'] },
+                reason: { type: 'string', minLength: 3, maxLength: 500 },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '200': { description: 'Người dùng sau khi đổi', content: { 'application/json': { schema: userSummarySchema } } },
+        '400': { description: 'VALIDATION_ERROR hoặc CANNOT_CHANGE_OWN_STATUS' },
+        ...common,
+        '404': { description: 'USER_NOT_FOUND' },
+        '409': { description: 'STATUS_UNCHANGED hoặc STATUS_CONFLICT' },
+      },
+    },
+  },
 }

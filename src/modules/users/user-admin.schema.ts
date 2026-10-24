@@ -18,3 +18,14 @@ export const listUsersSchema = z
 export type ListUsersQuery = z.infer<typeof listUsersSchema>
 
 export const userIdSchema = z.object({ id: z.coerce.number().int().positive() })
+
+// FR-06: Manager chỉ chuyển giữa hai trạng thái ACTIVE ↔ LOCKED; INACTIVE là "chưa xác minh email" do hệ thống quản lý
+export const changeUserStatusSchema = z
+  .object({
+    status: z.enum(['ACTIVE', 'LOCKED']),
+    // note: bắt buộc lý do để audit log có ngữ cảnh khi tra lại sau này
+    reason: z.string().trim().min(3, 'Lý do cần ít nhất 3 ký tự').max(500),
+  })
+  .strict()
+
+export type ChangeUserStatusInput = z.infer<typeof changeUserStatusSchema>
