@@ -45,6 +45,44 @@ const staffCodeProp = { type: 'string', pattern: '^[A-Za-z0-9-]{3,30}$', descrip
 
 // Các path quản trị người dùng (FR-09, FR-06, FR-07, FR-08); thêm dần theo từng task
 export const userAdminPaths = {
+  '/members': {
+    post: {
+      tags: ['User Management'],
+      summary: 'Receptionist tạo tài khoản Member tại quầy (FR-08)',
+      description:
+        'Receptionist hoặc Center Manager. Hệ thống sinh mã hội viên MEM-XXXXXXXX và mật khẩu ngẫu nhiên, tài khoản INACTIVE và gửi OTP xác minh tới email. Hội viên xác minh ở /verify-email rồi đặt mật khẩu bằng chức năng quên mật khẩu. Ghi Audit Log MEMBER_CREATED.',
+      security,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['displayName', 'email', 'phone'],
+              properties: {
+                displayName: { type: 'string', minLength: 2, maxLength: 80 },
+                email: { type: 'string', format: 'email' },
+                phone: { type: 'string', pattern: '^(0|\\+84)[0-9]{9,10}$' },
+                dateOfBirth: { type: 'string', format: 'date' },
+                gender: { type: 'string', enum: ['MALE', 'FEMALE', 'OTHER'] },
+                emergencyContact: { type: 'string', maxLength: 100 },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '201': {
+          description: 'Hội viên vừa tạo',
+          content: { 'application/json': { schema: { ...userSummarySchema, properties: { ...userSummarySchema.properties, emailSent: { type: 'boolean' } } } } },
+        },
+        '400': { description: 'VALIDATION_ERROR' },
+        ...common,
+        '409': { description: 'ACCOUNT_EXISTS (details.field = email | phone)' },
+      },
+    },
+  },
   '/staff': {
     get: {
       tags: ['User Management'],

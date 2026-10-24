@@ -6,6 +6,7 @@ import { trainingRouter } from '../modules/training/training.routes.js'
 import { financeRouter } from '../modules/finance/finance.routes.js'
 import { usersRouter } from '../modules/users/users.routes.js'
 import { staffRouter } from '../modules/users/staff.routes.js'
+import { membersRouter } from '../modules/users/members.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
 
 import sportRoutes from '../modules/sports/sport.routes.js'
@@ -29,6 +30,9 @@ apiRouter.use('/users', usersRouter)
 
 // Staff management (FR-07)
 apiRouter.use('/staff', staffRouter)
+
+// Member management (FR-08)
+apiRouter.use('/members', membersRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)

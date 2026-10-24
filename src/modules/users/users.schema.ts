@@ -6,7 +6,8 @@ export const COACH_FIELDS = ['bio'] as const
 
 const today = () => new Date().toISOString().slice(0, 10)
 
-const dateOnlySchema = z
+// note: export để members.schema (FR-08) dùng chung rule ngày sinh
+export const dateOnlySchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải theo định dạng YYYY-MM-DD')
   // note: chặn ngày không tồn tại như 2001-02-30 (Date tự lăn sang tháng sau nên chuỗi sẽ khác)
