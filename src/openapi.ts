@@ -1,6 +1,7 @@
 import { authPaths } from './modules/auth/auth.openapi.js'
 import { financePaths } from './modules/finance/finance.openapi.js'
 import { trainingPaths } from './modules/training/training.openapi.js'
+import { usersPaths } from './modules/users/users.openapi.js'
 
 export const openApiDocument = {
   openapi: '3.0.3',
@@ -19,6 +20,7 @@ export const openApiDocument = {
     { name: 'Email Verification', description: 'Xác minh email bằng OTP' },
     { name: 'Password Recovery', description: 'Quên và đặt lại mật khẩu' },
     { name: 'Session', description: 'Làm mới phiên và đăng xuất' },
+    { name: 'Profile', description: 'Hồ sơ cá nhân' },
     { name: 'Orders' }, { name: 'Payments' },
     { name: 'Wallet' }, { name: 'Promotions' }, { name: 'Refunds' },
     { name: 'Invoices' }, { name: 'Reports' }, { name: 'Audit' },
@@ -30,6 +32,7 @@ export const openApiDocument = {
   },
   paths: {
     ...authPaths,
+    ...usersPaths,
     ...financePaths,
     ...trainingPaths,
   },
