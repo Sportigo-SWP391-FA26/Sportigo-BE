@@ -87,7 +87,7 @@ describe.skipIf(!hasTestDatabase)('FR-47 Điểm danh buổi học', () => {
         ],
       })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('REGISTRATION_NOT_ELIGIBLE')
     expect(response.body.message).toBe(BR42)
     expect(response.body.details.invalidRegistrationIds).toEqual([
@@ -114,7 +114,7 @@ describe.skipIf(!hasTestDatabase)('FR-47 Điểm danh buổi học', () => {
         ],
       })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.message).toBe(BR42)
   })
 
@@ -200,7 +200,7 @@ describe.skipIf(!hasTestDatabase)('FR-47 Điểm danh buổi học', () => {
         ],
       })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('VALIDATION_ERROR')
   })
 

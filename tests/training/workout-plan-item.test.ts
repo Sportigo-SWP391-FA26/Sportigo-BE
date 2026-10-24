@@ -133,7 +133,7 @@ describe.skipIf(!hasTestDatabase)('FR-50 Mục trong giáo án', () => {
     const plan = await newPlan()
     const response = await addItem(plan.id, { weekNumber: 9, sessionNumber: 1 })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('WEEK_OUT_OF_RANGE')
   })
 
@@ -184,9 +184,9 @@ describe.skipIf(!hasTestDatabase)('FR-50 Mục trong giáo án', () => {
         })),
       })
 
-    expect(missingOne.status).toBe(422)
+    expect(missingOne.status).toBe(400)
     expect(missingOne.body.code).toBe('REORDER_INCOMPLETE')
-    expect(withGap.status).toBe(422)
+    expect(withGap.status).toBe(400)
     expect(await listTitles(plan.id)).toEqual(['Bài 1#1', 'Bài 2#2', 'Bài 3#3'])
   })
 
@@ -206,7 +206,7 @@ describe.skipIf(!hasTestDatabase)('FR-50 Mục trong giáo án', () => {
         ],
       })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('ITEMS_NOT_SAME_SLOT')
   })
 

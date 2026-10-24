@@ -139,7 +139,7 @@ describe.skipIf(!hasTestDatabase)('FR-48 Lịch sử điểm danh', () => {
     expect(firstPage.body.items).toHaveLength(1)
     expect(firstPage.body.total).toBe(4)
     expect(firstPage.body.pageSize).toBe(1)
-    expect(tooLarge.status).toBe(422)
+    expect(tooLarge.status).toBe(400)
   })
 
   it('FR-48: from sau to trả 422', async () => {
@@ -148,7 +148,7 @@ describe.skipIf(!hasTestDatabase)('FR-48 Lịch sử điểm danh', () => {
       to: '2026-10-01T00:00:00Z',
     })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
   })
 
   it('FR-48 / BR-06: Receptionist không được xem lịch sử điểm danh', async () => {

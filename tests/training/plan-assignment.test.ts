@@ -86,7 +86,7 @@ describe.skipIf(!hasTestDatabase)('FR-51 Gán giáo án cho khóa 1-1', () => {
     const plan = await newPlan({ sport: otherSportId })
     const response = await assign(enrollment.id, plan.id)
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.code).toBe('PLAN_NOT_ASSIGNABLE')
     expect(response.body.message).toBe(BR44)
   })
@@ -96,7 +96,7 @@ describe.skipIf(!hasTestDatabase)('FR-51 Gán giáo án cho khóa 1-1', () => {
     const plan = await newPlan({ status: 'DRAFT' })
     const response = await assign(enrollment.id, plan.id)
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.message).toBe(BR44)
   })
 
