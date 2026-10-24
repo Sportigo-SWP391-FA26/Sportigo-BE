@@ -3,6 +3,8 @@ import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { OAuth2Client } from 'google-auth-library'
 import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
+import { prisma } from '../../lib/prisma.js'
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 import type { LoginInput, RegisterInput } from './auth.schema.js'
 import {
   activateVerifiedUser,
@@ -100,6 +102,8 @@ export async function verifyEmail(email: string, code: string) {
     throw new HttpError(400, 'Mã OTP không đúng hoặc đã hết hạn', 'INVALID_VERIFICATION_CODE')
   }
   await activateVerifiedUser(record.id, record.userId)
+  // note(FR-54): thông báo chào mừng sau khi xác minh email thành công
+  await notify(prisma, { userIds: [record.userId], type: NOTIFICATION_TYPES.ACCOUNT_VERIFIED, title: 'Tài khoản đã được xác minh', content: 'Chào mừng bạn đến với Sportigo! Email của bạn đã được xác minh, bạn có thể đăng ký lớp và khóa học.' })
   return { message: 'Email đã được xác minh. Bạn có thể đăng nhập.' }
 }
 

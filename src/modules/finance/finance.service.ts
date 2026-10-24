@@ -4,6 +4,10 @@ import { prisma } from '../../lib/prisma.js'
 import { HttpError } from '../../lib/http-error.js'
 import { createPaymentUrl, type VnpayParams, verifyVnpay } from './vnpay.js'
 import { calculateDiscount, calculateRefundable, calculateRemaining, isFullyRefunded, toMoney } from './finance.math.js'
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
+
+// note(FR-54): định dạng tiền cho nội dung thông báo
+const vnd = (value: Prisma.Decimal) => `${Number(value.toFixed(0)).toLocaleString('vi-VN')} đ`
 
 type Db = Prisma.TransactionClient | PrismaClient
 const money = toMoney
@@ -108,6 +112,8 @@ async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) 
   }
   if (order.promotionId) await tx.promotionUsage.upsert({ where: { orderId }, create: { orderId, promotionId: order.promotionId, memberId: order.memberId }, update: {} })
   await tx.invoice.upsert({ where: { orderId }, create: { orderId, invoiceNumber: `INV-${Date.now()}-${orderId}`, subtotal: order.originalAmount, discountAmount: order.discountAmount, totalAmount: order.finalAmount }, update: {} })
+  // note(FR-54): chỉ báo lần đầu đơn chuyển sang PAID, callback VNPay lặp lại không tạo thông báo trùng
+  if (order.status !== 'PAID') await notify(tx, { userIds: [order.memberId], type: NOTIFICATION_TYPES.PAYMENT_SUCCESS, title: 'Thanh toán thành công', content: `Đơn ${order.orderNumber} đã được thanh toán đủ ${vnd(order.finalAmount)}. Dịch vụ của bạn đã được kích hoạt.` })
   return tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude })
 }
 
@@ -207,6 +213,8 @@ export async function reviewRefund(id: number, decision: 'REVIEW' | 'APPROVE' | 
   if (decision === 'APPROVE' && (!approvedAmount || money(approvedAmount).greaterThan(current.requestedAmount))) throw new HttpError(400, 'Số tiền duyệt phải lớn hơn 0 và không vượt số tiền yêu cầu', 'INVALID_APPROVED_AMOUNT')
   const updated = await prisma.refundRequest.update({ where: { id }, data: { status, approvedAmount: decision === 'APPROVE' ? money(approvedAmount!) : undefined, reviewedById: actorId, reviewedAt: new Date(), reviewNote: note } })
   await audit(prisma, { actorId, action: `${decision}_REFUND`, entityType: 'RefundRequest', entityId: id, oldData: current, newData: updated })
+  // note(FR-54): báo Member khi yêu cầu hoàn tiền được duyệt hoặc bị từ chối (bước REVIEW chỉ là nội bộ)
+  if (decision !== 'REVIEW') await notify(prisma, { userIds: [current.memberId], type: NOTIFICATION_TYPES.REFUND, title: decision === 'APPROVE' ? 'Yêu cầu hoàn tiền đã được duyệt' : 'Yêu cầu hoàn tiền bị từ chối', content: decision === 'APPROVE' ? `Yêu cầu hoàn tiền #${id} được duyệt ${vnd(updated.approvedAmount ?? current.requestedAmount)}. Tiền sẽ được cộng vào ví khi hoàn tất.` : `Yêu cầu hoàn tiền #${id} bị từ chối. Ghi chú: ${note}` })
   return updated
 }
 
@@ -230,6 +238,8 @@ export async function completeRefund(id: number, actorId: number, ipAddress?: st
     await tx.serviceOrder.update({ where: { id: request.payment.orderId }, data: { status: orderFullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
     const completed = await tx.refundRequest.update({ where: { id }, data: { status: 'COMPLETED', adjustmentId: adjustment.id, completedAt: new Date() } })
     await audit(tx, { actorId, action: 'COMPLETE_REFUND_TO_WALLET', entityType: 'RefundRequest', entityId: id, newData: { amount: approved.toString(), walletBalance: after.toString() }, ipAddress })
+    // note(FR-54): cùng transaction với cộng ví → không có thông báo nếu cộng ví thất bại
+    await notify(tx, { userIds: [request.memberId], type: NOTIFICATION_TYPES.REFUND, title: 'Đã hoàn tiền vào ví', content: `Yêu cầu hoàn tiền #${id} đã hoàn tất, ${vnd(approved)} đã được cộng vào ví Sportigo.` })
     return completed
   })
 }

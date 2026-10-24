@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { prisma } = vi.hoisted(() => ({ prisma: {
   groupClass: { findUnique: vi.fn() }, classRegistration: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() }, classWaitlist: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
   serviceOrder: { create: vi.fn() }, orderItem: { create: vi.fn() }, $transaction: vi.fn(),
+  // FR-54: offerNextInTransaction tạo thông báo mời cho người được chọn
+  notification: { createMany: vi.fn(async () => ({ count: 1 })) },
   $queryRaw: vi.fn(),
 } }))
 vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), ClassStatus: { OPEN: 'OPEN' }, RegistrationStatus: { CONFIRMED: 'CONFIRMED', PENDING_PAYMENT: 'PENDING_PAYMENT', CANCELLED: 'CANCELLED' }, OrderStatus: { PENDING_PAYMENT: 'PENDING_PAYMENT' }, OrderItemType: { GROUP_CLASS: 'GROUP_CLASS' }, WaitlistStatus: { WAITING: 'WAITING', OFFERED: 'OFFERED', ACCEPTED: 'ACCEPTED', CANCELLED: 'CANCELLED', EXPIRED: 'EXPIRED' } }))
@@ -43,10 +45,13 @@ describe('FR-25 / FR-26 Waitlist', () => {
     prisma.groupClass.findUnique.mockResolvedValue({ ...fullClass(), capacity: 2, _count: { registrations: 1 } })
     prisma.classWaitlist.findFirst
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 8, joinedAt: new Date('2026-10-01') })
+      .mockResolvedValueOnce({ id: 8, memberId: 2, joinedAt: new Date('2026-10-01') })
     prisma.classWaitlist.findUnique.mockResolvedValue({ id: 8, status: 'OFFERED' })
     const result = await service.processWaitlistOffer(1)
     expect(result.status).toBe('OFFERED')
+    expect(prisma.notification.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ userId: 2, type: 'WAITLIST_OFFER' })],
+    })
     expect(prisma.classWaitlist.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 8, status: 'WAITING' },
       data: expect.objectContaining({ status: 'OFFERED' }),
