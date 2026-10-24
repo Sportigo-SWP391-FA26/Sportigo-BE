@@ -5,6 +5,7 @@ import { usersPaths } from './modules/users/users.openapi.js'
 import { userAdminPaths } from './modules/users/user-admin.openapi.js'
 import { notificationsPaths } from './modules/notifications/notifications.openapi.js'
 import { flow2Paths } from './modules/bookings/flow2.openapi.js'
+import { supportPaths } from './modules/support/support.openapi.js'
 
 export const openApiDocument = {
   openapi: '3.0.3',
@@ -26,6 +27,7 @@ export const openApiDocument = {
     { name: 'Profile', description: 'Hồ sơ cá nhân' },
     { name: 'Notifications', description: 'Thông báo của người dùng' },
     { name: 'User Management', description: 'Quản trị người dùng, nhân sự, hội viên' },
+    { name: 'Support', description: 'Yêu cầu hỗ trợ của hội viên' },
     { name: 'Orders' }, { name: 'Payments' },
     { name: 'Wallet' }, { name: 'Promotions' }, { name: 'Refunds' },
     { name: 'Invoices' }, { name: 'Reports' }, { name: 'Audit' },
@@ -45,6 +47,7 @@ export const openApiDocument = {
     ...usersPaths,
     ...userAdminPaths,
     ...notificationsPaths,
+    ...supportPaths,
     ...flow2Paths,
     ...financePaths,
     ...trainingPaths,

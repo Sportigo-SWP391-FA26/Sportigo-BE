@@ -8,6 +8,7 @@ import { usersRouter } from '../modules/users/users.routes.js'
 import { staffRouter } from '../modules/users/staff.routes.js'
 import { membersRouter } from '../modules/users/members.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
+import { supportRouter } from '../modules/support/support.routes.js'
 
 import sportRoutes from '../modules/sports/sport.routes.js'
 import roomRoutes from '../modules/rooms/room.routes.js'
@@ -36,6 +37,9 @@ apiRouter.use('/members', membersRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)
+
+// Support requests (FR-55, FR-56)
+apiRouter.use('/support-requests', supportRouter)
 
 // Training and finance
 apiRouter.use(trainingRouter)
