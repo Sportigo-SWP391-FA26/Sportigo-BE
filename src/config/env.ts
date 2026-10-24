@@ -20,6 +20,7 @@ const schema = z.object({
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().default('Sportigo <onboarding@resend.dev>'),
   ATTENDANCE_EDIT_WINDOW_HOURS: z.coerce.number().int().positive().default(24),
+  CLASS_CANCELLATION_CUTOFF_HOURS: z.coerce.number().int().nonnegative().default(48),
   GMAIL_WEBHOOK_URL: z.string().url().optional(),
   GMAIL_WEBHOOK_SECRET: z.string().min(32).optional(),
   EMAIL_FROM: z.string().min(1).optional(),

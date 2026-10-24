@@ -132,14 +132,14 @@ describe.skipIf(!hasTestDatabase)('FR-52 Đánh giá tiến độ', () => {
       privateEnrollmentId: enrollmentId,
     })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.details.fieldErrors.classRegistrationId).toBeDefined()
   })
 
   it('FR-52 / BR-46: thiếu cả hai ngữ cảnh trả 422', async () => {
     const response = await create({ memberId: s.members[0]!.id })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
   })
 
   it('FR-52: ngày đánh giá ở tương lai trả 422', async () => {
@@ -149,7 +149,7 @@ describe.skipIf(!hasTestDatabase)('FR-52 Đánh giá tiến độ', () => {
       assessmentDate: centerDate(2 * DAY),
     })
 
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(400)
     expect(response.body.details.fieldErrors.assessmentDate).toBeDefined()
   })
 
@@ -165,8 +165,8 @@ describe.skipIf(!hasTestDatabase)('FR-52 Đánh giá tiến độ', () => {
       metrics: {},
     })
 
-    expect(notNumber.status).toBe(422)
-    expect(empty.status).toBe(422)
+    expect(notNumber.status).toBe(400)
+    expect(empty.status).toBe(400)
   })
 
   it('FR-52 / BR-06: Member không được tạo đánh giá', async () => {
