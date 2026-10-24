@@ -20,7 +20,7 @@ import {
 
 const MEMBER_CANCELLABLE: RequestStatus[] = ['OPEN', 'ASSIGNED', 'IN_PROGRESS']
 
-const person = (user: { id: number; displayName: string; role: { name: string } }) => ({
+export const person = (user: { id: number; displayName: string; role: { name: string } }) => ({
   id: user.id,
   displayName: user.displayName,
   role: user.role.name,
@@ -42,7 +42,7 @@ export function toSummary(row: RequestSummaryRow) {
   }
 }
 
-function toDetail(row: RequestDetailRow) {
+export function toDetail(row: RequestDetailRow) {
   return {
     ...toSummary(row),
     description: row.description,
@@ -56,7 +56,7 @@ function toDetail(row: RequestDetailRow) {
   }
 }
 
-const notFound = () => new HttpError(404, 'Không tìm thấy yêu cầu hỗ trợ', 'REQUEST_NOT_FOUND')
+export const notFound = () => new HttpError(404, 'Không tìm thấy yêu cầu hỗ trợ', 'REQUEST_NOT_FOUND')
 
 // note: FR-55 chỉ có Member; FR-56 mở rộng cho nhân viên xử lý
 async function requireOwnRequest(actor: AuthUser, id: number) {

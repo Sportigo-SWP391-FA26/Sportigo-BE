@@ -77,10 +77,15 @@ export const supportPaths = {
     },
     get: {
       tags,
-      summary: 'Danh sách yêu cầu hỗ trợ của tôi (FR-55)',
+      summary: 'Danh sách yêu cầu hỗ trợ (FR-55 Member, FR-56 hàng đợi nhân viên)',
+      description:
+        'Member: chỉ yêu cầu của mình, chỉ nhận status/page/pageSize. Receptionist: yêu cầu chưa phân công + đang giao cho mình. Center Manager: tất cả. Nhân viên lọc thêm priority, mine, q.',
       security,
       parameters: [
         { name: 'status', in: 'query', schema: { type: 'string', enum: [...REQUEST_STATUSES] } },
+        { name: 'priority', in: 'query', schema: { type: 'string', enum: [...PRIORITIES] }, description: 'Chỉ nhân viên' },
+        { name: 'mine', in: 'query', schema: { type: 'string', enum: ['true', 'false'] }, description: 'Chỉ nhân viên: yêu cầu đang giao cho mình' },
+        { name: 'q', in: 'query', schema: { type: 'string', maxLength: 100 }, description: 'Chỉ nhân viên: chủ đề hoặc tên hội viên' },
         { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
         { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 50, default: 20 } },
       ],
@@ -103,24 +108,64 @@ export const supportPaths = {
   '/support-requests/{id}': {
     get: {
       tags,
-      summary: 'Chi tiết yêu cầu và tin nhắn (FR-55)',
-      description: 'Member chỉ xem được yêu cầu của mình (khác → 404) và không thấy tin nhắn nội bộ.',
+      summary: 'Chi tiết yêu cầu và tin nhắn (FR-55, FR-56)',
+      description:
+        'Member chỉ xem được yêu cầu của mình (khác → 404) và không thấy tin nhắn nội bộ. Nhân viên thấy cả tin nội bộ và thêm trường history (lịch sử phân công); Receptionist không xem được yêu cầu đang giao cho người khác (404).',
       security,
       parameters: idParam,
       responses: { '200': detailResponse('Chi tiết'), ...common, '404': { description: 'REQUEST_NOT_FOUND' } },
     },
-  },
-  '/support-requests/{id}/messages': {
-    post: {
+    patch: {
       tags,
-      summary: 'Gửi thêm tin nhắn (FR-55)',
+      summary: 'Nhân viên nhận/giao việc và chuyển trạng thái (FR-56)',
+      description:
+        'Receptionist chỉ tự nhận (assigneeId = mình); Manager giao cho Receptionist đang hoạt động. Chuyển trạng thái hợp lệ: ASSIGNED→IN_PROGRESS, IN_PROGRESS→RESOLVED, RESOLVED→CLOSED hoặc RESOLVED→IN_PROGRESS. Chỉ người phụ trách hoặc Manager được đổi trạng thái. Ghi Audit Log SUPPORT_ASSIGNED / SUPPORT_STATUS_CHANGED và báo Member (SUPPORT).',
       security,
       parameters: idParam,
       requestBody: {
         required: true,
         content: {
           'application/json': {
-            schema: { type: 'object', additionalProperties: false, required: ['content'], properties: { content: { type: 'string', minLength: 1, maxLength: 2000 } } },
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              minProperties: 1,
+              properties: {
+                assigneeId: { type: 'integer' },
+                status: { type: 'string', enum: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'] },
+                note: { type: 'string', maxLength: 500 },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '200': detailResponse('Chi tiết sau khi cập nhật (kèm history)'),
+        '400': { description: 'VALIDATION_ERROR hoặc INVALID_ASSIGNEE' },
+        ...common,
+        '404': { description: 'REQUEST_NOT_FOUND' },
+        '409': { description: 'INVALID_STATUS_TRANSITION, ALREADY_ASSIGNED, REQUEST_NOT_ASSIGNED hoặc STATUS_CONFLICT' },
+      },
+    },
+  },
+  '/support-requests/{id}/messages': {
+    post: {
+      tags,
+      summary: 'Gửi tin nhắn (FR-55 Member, FR-56 nhân viên)',
+      description:
+        'isInternal chỉ dành cho nhân viên (Member gửi → 400). Nhân viên trả lời công khai phải đang phụ trách (hoặc là Manager); phản hồi đầu tiên khi ASSIGNED tự chuyển IN_PROGRESS và báo Member.',
+      security,
+      parameters: idParam,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['content'],
+              properties: { content: { type: 'string', minLength: 1, maxLength: 2000 }, isInternal: { type: 'boolean', default: false } },
+            },
           },
         },
       },
@@ -129,7 +174,7 @@ export const supportPaths = {
         '400': { description: 'VALIDATION_ERROR' },
         ...common,
         '404': { description: 'REQUEST_NOT_FOUND' },
-        '409': { description: 'REQUEST_CLOSED' },
+        '409': { description: 'REQUEST_CLOSED hoặc REQUEST_NOT_ASSIGNED' },
       },
     },
   },
