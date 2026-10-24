@@ -32,6 +32,7 @@ model User {
   coach                     Coach?
   emailVerificationTokens   EmailVerificationToken[]
   member                    Member?
+  receptionist              Receptionist?
   notifications             Notification[]
   passwordResetTokens       PasswordResetToken[]
   collectedPayments         Payment[]                @relation("PaymentCollector")
@@ -120,6 +121,14 @@ model Coach {
   markedAttendances              SessionAttendance[]
   createdWorkoutPlans            WorkoutPlan[]
   markedPrivateCourseAttendances PrivateCourseAttendance[]
+}
+
+// Hồ sơ nhân sự lễ tân, giữ mã nhân sự giống coachCode của Coach (FR-07)
+model Receptionist {
+  userId    Int       @id
+  staffCode String    @unique @db.VarChar(30)
+  hiredAt   DateTime? @db.Date
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Bảng trung gian quản lý môn thể thao mà Coach có thể dạy (FR-14, FR-31)
