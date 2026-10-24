@@ -60,8 +60,8 @@ describe('FR-09 Tìm và lọc người dùng', () => {
     expect(args.skip).toBe(10)
     expect(args.take).toBe(10)
     expect(args.where).toMatchObject({ role: { name: 'MEMBER' }, status: 'ACTIVE' })
-    // note: từ khóa được tìm trên tên, email, phone, mã hội viên và mã Coach
-    expect(args.where.OR).toHaveLength(5)
+    // note: từ khóa được tìm trên tên, email, phone, mã hội viên, mã Coach và mã lễ tân
+    expect(args.where.OR).toHaveLength(6)
   })
 
   it('Receptionist luôn bị giới hạn ở role MEMBER', async () => {

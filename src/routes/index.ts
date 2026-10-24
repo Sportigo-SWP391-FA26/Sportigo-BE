@@ -5,6 +5,7 @@ import { authRouter } from '../modules/auth/auth.routes.js'
 import { trainingRouter } from '../modules/training/training.routes.js'
 import { financeRouter } from '../modules/finance/finance.routes.js'
 import { usersRouter } from '../modules/users/users.routes.js'
+import { staffRouter } from '../modules/users/staff.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
 
 import sportRoutes from '../modules/sports/sport.routes.js'
@@ -25,6 +26,9 @@ apiRouter.use('/auth', authRouter)
 
 // Profile (FR-05, FR-62)
 apiRouter.use('/users', usersRouter)
+
+// Staff management (FR-07)
+apiRouter.use('/staff', staffRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)

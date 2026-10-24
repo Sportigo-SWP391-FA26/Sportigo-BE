@@ -16,6 +16,7 @@ export const userSummarySelect = {
   role: { select: { name: true } },
   member: { select: { memberCode: true } },
   coach: { select: { coachCode: true } },
+  receptionist: { select: { staffCode: true } },
 } satisfies Prisma.UserSelect
 
 export type UserSummaryRow = Prisma.UserGetPayload<{ select: typeof userSummarySelect }>

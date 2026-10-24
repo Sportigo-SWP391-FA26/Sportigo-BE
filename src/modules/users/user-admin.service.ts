@@ -12,8 +12,8 @@ export function toUserSummary(user: UserSummaryRow) {
     displayName: user.displayName,
     role: user.role.name,
     status: user.status,
-    // note: gộp mã hội viên / mã Coach thành một cột "code" cho bảng danh sách
-    code: user.member?.memberCode ?? user.coach?.coachCode ?? null,
+    // note: gộp mã hội viên / mã Coach / mã lễ tân (FR-07) thành một cột "code" cho bảng danh sách
+    code: user.member?.memberCode ?? user.coach?.coachCode ?? user.receptionist?.staffCode ?? null,
     emailVerified: user.emailVerifiedAt !== null,
     createdAt: user.createdAt,
   }
@@ -28,6 +28,7 @@ function searchWhere(q: string): Prisma.UserWhereInput {
       { phone: { contains: q } },
       { member: { memberCode: contains } },
       { coach: { coachCode: contains } },
+      { receptionist: { staffCode: contains } },
     ],
   }
 }
