@@ -7,6 +7,7 @@ import { financeRouter } from '../modules/finance/finance.routes.js'
 import { usersRouter } from '../modules/users/users.routes.js'
 import { staffRouter } from '../modules/users/staff.routes.js'
 import { membersRouter } from '../modules/users/members.routes.js'
+import { coachMembersRouter } from '../modules/users/coach-members.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
 import { supportRouter } from '../modules/support/support.routes.js'
 
@@ -34,6 +35,9 @@ apiRouter.use('/staff', staffRouter)
 
 // Member management (FR-08)
 apiRouter.use('/members', membersRouter)
+
+// Coach's members (FR-11); phải đứng trước '/coaches' để "me" không bị coi là id coach
+apiRouter.use('/coaches/me/members', coachMembersRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)

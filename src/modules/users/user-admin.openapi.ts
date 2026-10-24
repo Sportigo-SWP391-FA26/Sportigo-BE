@@ -83,6 +83,22 @@ export const userAdminPaths = {
       },
     },
   },
+  '/coaches/me/members': {
+    get: {
+      tags: ['Coaches'],
+      summary: 'Học viên của tôi (FR-11)',
+      description:
+        'Chỉ Coach. Học viên = có đăng ký CONFIRMED trong lớp của Coach hoặc khóa 1-1 ACTIVE/COMPLETED với Coach. Mỗi học viên kèm lớp/khóa với Coach này, giáo án đang gán và đánh giá gần nhất (goals). Schema chưa có cột mục tiêu riêng nên goals = giáo án + đề xuất đánh giá.',
+      security,
+      parameters: [
+        { name: 'q', in: 'query', schema: { type: 'string', maxLength: 100 }, description: 'Tên hoặc mã hội viên' },
+        { name: 'type', in: 'query', schema: { type: 'string', enum: ['CLASS', 'PRIVATE'] } },
+        { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+        { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+      ],
+      responses: { '200': { description: 'Danh sách phân trang' }, '400': { description: 'VALIDATION_ERROR' }, ...common },
+    },
+  },
   '/members/{id}': {
     get: {
       tags: ['User Management'],
