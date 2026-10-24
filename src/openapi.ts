@@ -2,6 +2,7 @@ import { authPaths } from './modules/auth/auth.openapi.js'
 import { financePaths } from './modules/finance/finance.openapi.js'
 import { trainingPaths } from './modules/training/training.openapi.js'
 import { usersPaths } from './modules/users/users.openapi.js'
+import { userAdminPaths } from './modules/users/user-admin.openapi.js'
 import { notificationsPaths } from './modules/notifications/notifications.openapi.js'
 import { flow2Paths } from './modules/bookings/flow2.openapi.js'
 
@@ -24,6 +25,7 @@ export const openApiDocument = {
     { name: 'Session', description: 'Làm mới phiên và đăng xuất' },
     { name: 'Profile', description: 'Hồ sơ cá nhân' },
     { name: 'Notifications', description: 'Thông báo của người dùng' },
+    { name: 'User Management', description: 'Quản trị người dùng, nhân sự, hội viên' },
     { name: 'Orders' }, { name: 'Payments' },
     { name: 'Wallet' }, { name: 'Promotions' }, { name: 'Refunds' },
     { name: 'Invoices' }, { name: 'Reports' }, { name: 'Audit' },
@@ -41,6 +43,7 @@ export const openApiDocument = {
   paths: {
     ...authPaths,
     ...usersPaths,
+    ...userAdminPaths,
     ...notificationsPaths,
     ...flow2Paths,
     ...financePaths,
