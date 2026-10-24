@@ -13,7 +13,6 @@ import sessionRoutes from '../modules/class-sessions/session.routes.js'
 import bookingRoutes from '../modules/bookings/booking.routes.js'
 import waitlistRoutes from '../modules/waitlist/waitlist.routes.js'
 import privateRoutes from '../modules/private-courses/private.routes.js'
-import paymentRoutes from '../modules/finance/payment.routes.js'
 import attendanceRoutes from '../modules/attendance/attendance.routes.js'
 import reportRoutes from '../modules/reports/report.routes.js'
 
@@ -41,6 +40,5 @@ apiRouter.use('/group-classes', waitlistRoutes)
 apiRouter.use('/private-courses', privateRoutes)
 
 // Other features
-apiRouter.use('/', paymentRoutes)
 apiRouter.use('/', attendanceRoutes)
 apiRouter.use('/', reportRoutes)

@@ -61,7 +61,6 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       ['get', '/api/private-courses/enrollments/1'],
       ['post', '/api/private-courses/enrollments/1/schedules'],
       ['post', '/api/private-courses/enrollments/1/schedules/1/attendance'],
-      ['post', '/api/orders/1/pay'],
       ['get', '/api/orders/1'],
       ['post', '/api/orders/1/promotion'],
       ['post', '/api/orders/1/payments/vnpay'],

@@ -3,6 +3,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { lockGroupClass } from '../../lib/group-class-lock.js';
 import waitlistService from '../waitlist/waitlist.service.js';
 import { assertClassRegistrationCancellable } from './cancellation-policy.js';
+import { refundClassRegistrationToWallet } from '../finance/automatic-refund.service.js';
 
 const prisma = new PrismaClient();
 
@@ -411,8 +412,11 @@ export class BookingService {
       throw new HttpError(403, 'Bạn không có quyền thực hiện thao tác này.', 'FORBIDDEN');
     }
 
-    if (registration.status === RegistrationStatus.CANCELLED) {
+    if (registration.status === RegistrationStatus.CANCELLED || registration.status === RegistrationStatus.REFUNDED) {
       throw new HttpError(409, 'Đăng ký này đã bị hủy trước đó rồi.', 'REGISTRATION_ALREADY_CANCELLED');
+    }
+    if (registration.status !== RegistrationStatus.PENDING_PAYMENT && registration.status !== RegistrationStatus.CONFIRMED) {
+      throw new HttpError(409, 'Trạng thái đăng ký không cho phép hủy.', 'REGISTRATION_NOT_CANCELLABLE');
     }
 
     const firstSession = registration.groupClass.sessions[0];
@@ -442,8 +446,11 @@ export class BookingService {
       if (!currentRegistration) {
         throw new HttpError(404, 'Không tìm thấy thông tin đăng ký lớp học.', 'REGISTRATION_NOT_FOUND');
       }
-      if (currentRegistration.status === RegistrationStatus.CANCELLED) {
+      if (currentRegistration.status === RegistrationStatus.CANCELLED || currentRegistration.status === RegistrationStatus.REFUNDED) {
         throw new HttpError(409, 'Đăng ký này đã bị hủy trước đó rồi.', 'REGISTRATION_ALREADY_CANCELLED');
+      }
+      if (currentRegistration.status !== RegistrationStatus.PENDING_PAYMENT && currentRegistration.status !== RegistrationStatus.CONFIRMED) {
+        throw new HttpError(409, 'Trạng thái đăng ký không cho phép hủy.', 'REGISTRATION_NOT_CANCELLABLE');
       }
 
       const currentFirstSession = currentRegistration.groupClass.sessions[0];
@@ -452,9 +459,7 @@ export class BookingService {
       }
       assertClassRegistrationCancellable(currentFirstSession.startsAt, actor.role, new Date())
 
-      const refundAmount = currentRegistration.status === RegistrationStatus.CONFIRMED
-        ? Number(currentRegistration.price)
-        : 0;
+      let refundAmount = 0;
       const cancelled = await tx.classRegistration.updateMany({
         where: { id: registrationId, status: currentRegistration.status },
         data: {
@@ -466,38 +471,18 @@ export class BookingService {
         throw new HttpError(409, 'Đăng ký đã được cập nhật đồng thời.', 'REGISTRATION_STATE_CHANGED');
       }
 
-      if (refundAmount > 0) {
-        let wallet = currentRegistration.member.wallet;
-        if (!wallet) {
-          wallet = await tx.wallet.create({
-            data: { memberId, balance: 0 },
-          });
-        }
-
-        const balanceBefore = Number(wallet.balance);
-        const balanceAfter = balanceBefore + refundAmount;
-        const idempotencyKey = `REFUND-GC-${registrationId}-${Date.now()}`;
-
-        // Cập nhật số dư ví
-        await tx.wallet.update({
-          where: { id: wallet.id },
-          data: { balance: balanceAfter, version: { increment: 1 } },
+      if (currentRegistration.status === RegistrationStatus.CONFIRMED) {
+        const refund = await refundClassRegistrationToWallet(tx, {
+          registrationId,
+          memberId,
+          actorId: actor.id,
+          reason: `Hoàn tiền 100% do hủy lớp nhóm đúng hạn: ${currentRegistration.groupClass.name}`,
+          idempotencyKey: `CLASS_REGISTRATION_AUTO_REFUND:${registrationId}`,
         });
-
-        // Ghi nhận giao dịch ví
-        await tx.walletTransaction.create({
-          data: {
-            walletId: wallet.id,
-            createdById: actor.id,
-            type: 'REFUND_CREDIT',
-            amount: refundAmount,
-            balanceBefore,
-            balanceAfter,
-            referenceType: 'CLASS_CANCELLATION',
-            referenceId: String(registrationId),
-            idempotencyKey,
-            description: `Hoàn tiền 100% do hủy lớp nhóm: ${currentRegistration.groupClass.name}`,
-          },
+        refundAmount = refund.amount;
+        await tx.classRegistration.update({
+          where: { id: registrationId },
+          data: { status: RegistrationStatus.REFUNDED },
         });
       }
 
@@ -514,9 +499,11 @@ export class BookingService {
       await waitlistService.offerNextInTransaction(tx, classId, now);
       return {
         registrationId,
-        status: RegistrationStatus.CANCELLED,
+        status: refundAmount > 0 ? RegistrationStatus.REFUNDED : RegistrationStatus.CANCELLED,
         refundedAmount: refundAmount,
-        message: 'Hủy đăng ký lớp thành công và đã hoàn tiền vào ví.',
+        message: refundAmount > 0
+          ? 'Hủy đăng ký lớp thành công và đã tự động hoàn tiền vào ví.'
+          : 'Hủy đăng ký lớp thành công.',
       };
     });
   }
@@ -552,32 +539,14 @@ export class BookingService {
       let refundedAmount = 0;
       for (const registration of groupClass.registrations) {
         if (registration.status === RegistrationStatus.CONFIRMED) {
-          const amount = Number(registration.price);
-          const wallet = await tx.wallet.upsert({
-            where: { memberId: registration.memberId },
-            create: { memberId: registration.memberId },
-            update: {},
+          const refund = await refundClassRegistrationToWallet(tx, {
+            registrationId: registration.id,
+            memberId: registration.memberId,
+            actorId: actorUserId,
+            reason: `Hoàn tiền 100% do trung tâm hủy lớp: ${groupClass.name}`,
+            idempotencyKey: `CENTER_CLASS_CANCELLATION_REFUND:${classId}:${registration.id}`,
           });
-          const balanceAfter = Number(wallet.balance) + amount;
-          await tx.wallet.update({
-            where: { id: wallet.id },
-            data: { balance: { increment: amount }, version: { increment: 1 } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              walletId: wallet.id,
-              createdById: actorUserId,
-              type: 'REFUND_CREDIT',
-              amount,
-              balanceBefore: wallet.balance,
-              balanceAfter,
-              referenceType: 'CLASS_CANCELLATION',
-              referenceId: String(registration.id),
-              idempotencyKey: `CLASS-CANCEL-${classId}-${registration.id}`,
-              description: `Hoàn tiền 100% do trung tâm hủy lớp: ${groupClass.name}`,
-            },
-          });
-          refundedAmount += amount;
+          refundedAmount += refund.amount;
           await tx.classRegistration.update({
             where: { id: registration.id },
             data: { status: RegistrationStatus.REFUNDED, cancelledAt: new Date() },

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { prisma } = vi.hoisted(() => ({
+const { prisma, refundClassRegistrationToWallet, offerNextInTransaction } = vi.hoisted(() => ({
+  refundClassRegistrationToWallet: vi.fn(),
+  offerNextInTransaction: vi.fn(),
   prisma: {
     groupClass: {
       findMany: vi.fn(),
@@ -13,6 +15,7 @@ const { prisma } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
       count: vi.fn(),
     },
     classSession: { findMany: vi.fn() },
@@ -26,6 +29,14 @@ const { prisma } = vi.hoisted(() => ({
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   },
+}))
+
+vi.mock('../../src/modules/finance/automatic-refund.service.js', () => ({
+  refundClassRegistrationToWallet,
+}))
+
+vi.mock('../../src/modules/waitlist/waitlist.service.js', () => ({
+  default: { offerNextInTransaction },
 }))
 
 vi.mock('@prisma/client', () => ({
@@ -62,6 +73,8 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     prisma.$queryRaw.mockResolvedValue([{ id: 1 }])
     prisma.member.findUnique.mockResolvedValue({ userId: 2 })
     prisma.classWaitlist.updateMany.mockResolvedValue({ count: 0 })
+    refundClassRegistrationToWallet.mockResolvedValue({ amount: 500, alreadyProcessed: false })
+    offerNextInTransaction.mockResolvedValue(null)
     prisma.$transaction.mockImplementation(
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     )
@@ -272,7 +285,6 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
         { id: 13, memberId: 3, status: 'PENDING_PAYMENT', price: 500 },
       ],
     })
-    prisma.wallet.upsert.mockResolvedValue({ id: 8, balance: 100 })
     prisma.groupClass.update.mockResolvedValue({ id: 1, status: 'CANCELLED' })
 
     const result = await service.cancelGroupClass(1, 99)
@@ -282,13 +294,15 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
       refundedAmount: 500,
       cancelledRegistrations: 2,
     })
-    expect(prisma.walletTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        createdById: 99,
-        amount: 500,
-        idempotencyKey: 'CLASS-CANCEL-1-12',
+    expect(refundClassRegistrationToWallet).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        registrationId: 12,
+        memberId: 2,
+        actorId: 99,
+        idempotencyKey: 'CENTER_CLASS_CANCELLATION_REFUND:1:12',
       }),
-    })
+    )
     expect(prisma.classRegistration.update).toHaveBeenCalledWith({
       where: { id: 12 },
       data: expect.objectContaining({ status: 'REFUNDED' }),
@@ -297,5 +311,42 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
       where: { id: 13 },
       data: expect.objectContaining({ status: 'CANCELLED' }),
     })
+  })
+
+  it('automatically refunds a confirmed registration cancelled before the 48-hour cutoff', async () => {
+    const registration = {
+      id: 12,
+      memberId: 2,
+      status: 'CONFIRMED',
+      price: 500,
+      groupClass: {
+        id: 1,
+        name: 'Swimming',
+        sessions: [{ startsAt: new Date(Date.now() + 49 * 60 * 60 * 1000) }],
+      },
+      member: { wallet: null },
+    }
+    prisma.classRegistration.findUnique.mockResolvedValue(registration)
+    prisma.classRegistration.updateMany.mockResolvedValue({ count: 1 })
+    prisma.classRegistration.update.mockResolvedValue({ ...registration, status: 'REFUNDED' })
+    refundClassRegistrationToWallet.mockResolvedValue({ amount: 450, alreadyProcessed: false })
+
+    const result = await service.cancelClassRegistration(12, { id: 2, role: 'MEMBER' })
+
+    expect(result).toMatchObject({
+      registrationId: 12,
+      status: 'REFUNDED',
+      refundedAmount: 450,
+    })
+    expect(refundClassRegistrationToWallet).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        registrationId: 12,
+        memberId: 2,
+        actorId: 2,
+        idempotencyKey: 'CLASS_REGISTRATION_AUTO_REFUND:12',
+      }),
+    )
+    expect(offerNextInTransaction).toHaveBeenCalledWith(prisma, 1, expect.any(Date))
   })
 })
