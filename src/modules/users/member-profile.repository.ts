@@ -39,6 +39,7 @@ export function findMemberProfile(memberId: number, coachId?: number) {
           dateOfBirth: true,
           gender: true,
           emergencyContact: true,
+          trainingGoal: true,
           joinedAt: true,
           registrations: {
             where: byCoach ? { groupClass: { coachId } } : {},

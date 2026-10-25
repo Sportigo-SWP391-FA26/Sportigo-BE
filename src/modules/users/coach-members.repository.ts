@@ -10,6 +10,7 @@ export function coachMemberSelect(coachId: number) {
     member: {
       select: {
         memberCode: true,
+        trainingGoal: true,
         gender: true,
         dateOfBirth: true,
         registrations: {

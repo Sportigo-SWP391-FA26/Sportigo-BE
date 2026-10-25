@@ -90,6 +90,7 @@ export async function getMemberProfile(actor: AuthUser, memberId: number) {
     dateOfBirth: toDateOnly(member.dateOfBirth),
     gender: member.gender,
     emergencyContact: member.emergencyContact,
+    trainingGoal: member.trainingGoal,
     joinedAt: member.joinedAt,
     classRegistrations: toClassRegistrations(member),
     privateEnrollments: toPrivateEnrollments(member),

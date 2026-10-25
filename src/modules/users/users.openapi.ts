@@ -21,6 +21,7 @@ const profileSchema = {
         dateOfBirth: nullableString({ format: 'date' }),
         gender: nullableString(),
         emergencyContact: nullableString(),
+        trainingGoal: nullableString({ maxLength: 500 }),
         joinedAt: { type: 'string', format: 'date-time' },
       },
     },
@@ -52,7 +53,7 @@ export const usersPaths = {
       tags: ['Profile'],
       summary: 'Cập nhật các trường hồ sơ được phép',
       description:
-        'Không nhận email, role, status, mã hội viên/nhân sự. dateOfBirth, gender, emergencyContact chỉ dành cho Member; bio chỉ dành cho Coach.',
+        'Không nhận email, role, status, mã hội viên/nhân sự. dateOfBirth, gender, emergencyContact, trainingGoal chỉ dành cho Member; bio chỉ dành cho Coach.',
       security,
       requestBody: {
         required: true,
@@ -68,6 +69,7 @@ export const usersPaths = {
                 dateOfBirth: nullableString({ format: 'date', example: '2004-10-14' }),
                 gender: nullableString({ enum: ['MALE', 'FEMALE', 'OTHER', null] }),
                 emergencyContact: nullableString({ maxLength: 100 }),
+                trainingGoal: nullableString({ maxLength: 500 }),
                 bio: nullableString({ maxLength: 1000 }),
               },
             },

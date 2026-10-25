@@ -30,6 +30,7 @@ const row = {
   displayName: 'Trần Bình',
   member: {
     memberCode: 'MEM-1A2B3C4D',
+    trainingGoal: 'Tăng sức bền để bơi liên tục 1.000 m',
     gender: 'MALE',
     dateOfBirth: new Date('2000-05-20T00:00:00Z'),
     registrations: [{ groupClass: { id: 3, name: 'Yoga sáng', status: 'IN_PROGRESS', sport: { name: 'Yoga' } } }],
@@ -88,6 +89,7 @@ describe('FR-11 Coach xem học viên của mình', () => {
       classes: [{ id: 3, name: 'Yoga sáng', sport: 'Yoga' }],
       privateCourses: [{ enrollmentId: 9, remainingSessions: 6, expiryDate: '2026-12-31' }],
       goals: {
+        statedGoal: 'Tăng sức bền để bơi liên tục 1.000 m',
         workoutPlans: [{ id: 5, name: 'Bơi sải cơ bản' }],
         latestAssessment: { score: 7.5, recommendation: 'Tăng sức bền', nextAssessmentDate: '2026-11-20' },
       },

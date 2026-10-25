@@ -14,6 +14,7 @@ function toCoachMember(row: CoachMemberRow) {
     id: row.id,
     displayName: row.displayName,
     memberCode: member?.memberCode ?? null,
+    trainingGoal: member?.trainingGoal ?? null,
     gender: member?.gender ?? null,
     dateOfBirth: toDateOnly(member?.dateOfBirth ?? null),
     classes: (member?.registrations ?? []).map(({ groupClass }) => ({
@@ -32,6 +33,7 @@ function toCoachMember(row: CoachMemberRow) {
     })),
     // note: schema chưa có cột "mục tiêu" riêng → mục tiêu = giáo án đang gán + đề xuất của lần đánh giá gần nhất
     goals: {
+      statedGoal: member?.trainingGoal ?? null,
       workoutPlans: enrollments.flatMap((enrollment) => enrollment.plans.map(({ workoutPlan }) => workoutPlan)),
       latestAssessment: latest
         ? {

@@ -58,6 +58,7 @@ function toProfile(user: ProfileRow) {
           dateOfBirth: toDateOnly(user.member.dateOfBirth),
           gender: user.member.gender,
           emergencyContact: user.member.emergencyContact,
+          trainingGoal: user.member.trainingGoal,
           joinedAt: user.member.joinedAt,
         }
       : null,
@@ -100,6 +101,7 @@ function splitChanges(input: UpdateProfileInput): ProfileChanges {
   }
   if (input.gender !== undefined) changes.member.gender = input.gender
   if (input.emergencyContact !== undefined) changes.member.emergencyContact = input.emergencyContact
+  if (input.trainingGoal !== undefined) changes.member.trainingGoal = input.trainingGoal
   if (input.bio !== undefined) changes.coach.bio = input.bio
   return changes
 }

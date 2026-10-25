@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import groupClassService from './group-class.service.js';
 import { ClassStatus } from '@prisma/client';
+import { getAuthUser } from '../../middleware/auth.js';
+import bookingService from '../bookings/booking.service.js';
 
 export class GroupClassController {
   async getGroupClasses(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -25,6 +27,11 @@ export class GroupClassController {
     try {
       const id = Number(req.params.id);
       const { status } = req.body; // OPEN, CLOSED, CANCELLED...
+      if (status === ClassStatus.CANCELLED) {
+        const result = await bookingService.cancelGroupClass(id, getAuthUser(req).id);
+        res.status(200).json({ success: true, message: 'Hủy lớp thành công', data: result });
+        return;
+      }
       const updated = await groupClassService.updateClassStatus(id, status as ClassStatus);
       res.status(200).json({ success: true, message: 'Cập nhật trạng thái lớp thành công', data: updated });
     } catch (error: unknown) {

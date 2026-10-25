@@ -4,6 +4,7 @@ import { lockGroupClass } from '../../lib/group-class-lock.js';
 import waitlistService from '../waitlist/waitlist.service.js';
 import { assertClassRegistrationCancellable } from './cancellation-policy.js';
 import { refundClassRegistrationToWallet } from '../finance/automatic-refund.service.js';
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
 
 const prisma = new PrismaClient();
 
@@ -523,6 +524,10 @@ export class BookingService {
               },
             },
           },
+          waitlists: {
+            where: { status: { in: ['WAITING', 'OFFERED'] } },
+            select: { memberId: true },
+          },
         },
       });
       if (!groupClass) {
@@ -572,6 +577,16 @@ export class BookingService {
           items: { some: { classRegistrationId: { in: groupClass.registrations.map((item) => item.id) } } },
         },
         data: { status: OrderStatus.CANCELLED },
+      });
+      await notify(tx, {
+        userIds: [
+          groupClass.coachId,
+          ...groupClass.registrations.map((registration) => registration.memberId),
+          ...groupClass.waitlists.map((entry) => entry.memberId),
+        ],
+        type: NOTIFICATION_TYPES.SCHEDULE_CHANGE,
+        title: 'Lớp học đã bị hủy',
+        content: `Lớp "${groupClass.name}" đã bị trung tâm hủy. Các khoản đủ điều kiện đã được hoàn vào ví Sportigo.`,
       });
       return {
         classId,

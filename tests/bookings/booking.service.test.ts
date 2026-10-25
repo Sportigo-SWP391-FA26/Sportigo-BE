@@ -26,6 +26,7 @@ const { prisma, refundClassRegistrationToWallet, offerNextInTransaction } = vi.h
     classWaitlist: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     wallet: { create: vi.fn(), update: vi.fn(), upsert: vi.fn() },
     walletTransaction: { create: vi.fn() },
+    notification: { createMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   },
@@ -73,6 +74,7 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     prisma.$queryRaw.mockResolvedValue([{ id: 1 }])
     prisma.member.findUnique.mockResolvedValue({ userId: 2 })
     prisma.classWaitlist.updateMany.mockResolvedValue({ count: 0 })
+    prisma.notification.createMany.mockResolvedValue({ count: 0 })
     refundClassRegistrationToWallet.mockResolvedValue({ amount: 500, alreadyProcessed: false })
     offerNextInTransaction.mockResolvedValue(null)
     prisma.$transaction.mockImplementation(
@@ -154,7 +156,9 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     prisma.groupClass.findUnique.mockResolvedValue({
       id: 1,
       name: 'Swimming',
+      coachId: 7,
       status: 'OPEN',
+      waitlists: [{ memberId: 4 }],
       registrationOpenAt: new Date(Date.now() - 60_000),
       registrationCloseAt: new Date(Date.now() + 60_000),
       startDate: new Date(Date.now() + 120_000),
@@ -279,7 +283,9 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     prisma.groupClass.findUnique.mockResolvedValue({
       id: 1,
       name: 'Swimming',
+      coachId: 7,
       status: 'OPEN',
+      waitlists: [{ memberId: 4 }],
       registrations: [
         { id: 12, memberId: 2, status: 'CONFIRMED', price: 500 },
         { id: 13, memberId: 3, status: 'PENDING_PAYMENT', price: 500 },
@@ -310,6 +316,14 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     expect(prisma.classRegistration.update).toHaveBeenCalledWith({
       where: { id: 13 },
       data: expect.objectContaining({ status: 'CANCELLED' }),
+    })
+    expect(prisma.notification.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({ userId: 7, type: 'SCHEDULE_CHANGE' }),
+        expect.objectContaining({ userId: 2, type: 'SCHEDULE_CHANGE' }),
+        expect.objectContaining({ userId: 3, type: 'SCHEDULE_CHANGE' }),
+        expect.objectContaining({ userId: 4, type: 'SCHEDULE_CHANGE' }),
+      ]),
     })
   })
 

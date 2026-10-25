@@ -44,6 +44,7 @@ const profileRow = {
     dateOfBirth: new Date('2000-05-20T00:00:00Z'),
     gender: 'MALE',
     emergencyContact: 'Mẹ 0909',
+    trainingGoal: 'Cải thiện sức bền và kỹ thuật bơi',
     joinedAt: new Date('2026-10-01'),
     registrations: [
       {
@@ -110,6 +111,7 @@ describe('FR-10 Hồ sơ tổng hợp Member', () => {
       email: 'binh@gmail.com',
       phone: '0912345678',
       dateOfBirth: '2000-05-20',
+      trainingGoal: 'Cải thiện sức bền và kỹ thuật bơi',
       scope: 'STAFF',
     })
     expect(response.body.classRegistrations[0].attendance).toEqual({ present: 2, late: 1, absent: 1, excused: 0, total: 4 })

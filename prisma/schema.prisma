@@ -104,6 +104,7 @@ model RefreshToken {
 model Member {
   userId             Int                       @id
   memberCode         String                    @unique @db.VarChar(30)
+  trainingGoal       String?                   @db.VarChar(500)
   dateOfBirth        DateTime?                 @db.Date
   gender             String?                   @db.VarChar(20)
   emergencyContact   String?                   @db.VarChar(100)

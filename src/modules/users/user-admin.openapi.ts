@@ -67,6 +67,7 @@ export const userAdminPaths = {
                 dateOfBirth: { type: 'string', format: 'date' },
                 gender: { type: 'string', enum: ['MALE', 'FEMALE', 'OTHER'] },
                 emergencyContact: { type: 'string', maxLength: 100 },
+                trainingGoal: { type: 'string', maxLength: 500, nullable: true },
               },
             },
           },
@@ -88,7 +89,7 @@ export const userAdminPaths = {
       tags: ['Coaches'],
       summary: 'Học viên của tôi (FR-11)',
       description:
-        'Chỉ Coach. Học viên = có đăng ký CONFIRMED trong lớp của Coach hoặc khóa 1-1 ACTIVE/COMPLETED với Coach. Mỗi học viên kèm lớp/khóa với Coach này, giáo án đang gán và đánh giá gần nhất (goals). Schema chưa có cột mục tiêu riêng nên goals = giáo án + đề xuất đánh giá.',
+        'Chỉ Coach. Học viên = có đăng ký CONFIRMED trong lớp của Coach hoặc khóa 1-1 ACTIVE/COMPLETED với Coach. Mỗi học viên kèm mục tiêu tự khai báo, lớp/khóa với Coach này, giáo án đang gán và đánh giá gần nhất (goals).',
       security,
       parameters: [
         { name: 'q', in: 'query', schema: { type: 'string', maxLength: 100 }, description: 'Tên hoặc mã hội viên' },

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // note: trường riêng theo role; service dùng 2 danh sách này để trả 400 FIELD_NOT_ALLOWED
-export const MEMBER_FIELDS = ['dateOfBirth', 'gender', 'emergencyContact'] as const
+export const MEMBER_FIELDS = ['dateOfBirth', 'gender', 'emergencyContact', 'trainingGoal'] as const
 export const COACH_FIELDS = ['bio'] as const
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -23,6 +23,7 @@ export const updateProfileSchema = z
     dateOfBirth: dateOnlySchema.nullable(),
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']).nullable(),
     emergencyContact: z.string().trim().min(1).max(100).nullable(),
+    trainingGoal: z.string().trim().min(1).max(500).nullable(),
     bio: z.string().trim().max(1000).nullable(),
   })
   .partial()

@@ -274,7 +274,7 @@ describe('FR-17–FR-20 Class session scheduling', () => {
         coachId: 10,
         startDate: new Date('2026-10-01T00:00:00Z'),
         endDate: new Date('2026-12-01T00:00:00Z'),
-        registrations: [],
+        registrations: [{ memberId: 20 }, { memberId: 21 }],
       },
     })
     prisma.classSession.findFirst.mockResolvedValue(null)
@@ -292,6 +292,13 @@ describe('FR-17–FR-20 Class session scheduling', () => {
         newRoomId: 2,
         reason: 'Room maintenance',
       }),
+    })
+    expect(prisma.notification.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({ userId: 10, type: 'SCHEDULE_CHANGE' }),
+        expect.objectContaining({ userId: 20, type: 'SCHEDULE_CHANGE' }),
+        expect.objectContaining({ userId: 21, type: 'SCHEDULE_CHANGE' }),
+      ]),
     })
   })
 })
