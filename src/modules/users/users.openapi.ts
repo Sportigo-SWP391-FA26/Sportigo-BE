@@ -134,4 +134,68 @@ export const usersPaths = {
       },
     },
   },
+  // note: FR-05 đổi email gồm 2 bước, email chỉ đổi thật ở bước confirm
+  '/users/me/email-change': {
+    post: {
+      tags: ['Profile'],
+      summary: 'Yêu cầu đổi email (bước 1: gửi OTP tới email mới)',
+      description:
+        'Yêu cầu mật khẩu hiện tại. Email chưa đổi ở bước này. OTP 6 số có hiệu lực 10 phút; gửi lại sẽ hủy mã cũ.',
+      security,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['newEmail', 'currentPassword'],
+              properties: { newEmail: { type: 'string', format: 'email' }, currentPassword: { type: 'string', format: 'password' } },
+            },
+          },
+        },
+      },
+      responses: {
+        '202': {
+          description: 'Đã gửi OTP',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { message: { type: 'string' }, newEmail: { type: 'string' }, expiresAt: { type: 'string', format: 'date-time' } },
+              },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION_ERROR, INVALID_CURRENT_PASSWORD hoặc SAME_AS_CURRENT_EMAIL' },
+        '401': unauthorized,
+        '403': inactive,
+        '409': { description: 'Email đã được sử dụng (ACCOUNT_EXISTS, details.field = newEmail)' },
+        '502': { description: 'EMAIL_DELIVERY_FAILED: chưa gửi được email' },
+      },
+    },
+  },
+  '/users/me/email-change/confirm': {
+    post: {
+      tags: ['Profile'],
+      summary: 'Xác nhận đổi email (bước 2: nhập OTP)',
+      description: 'Đúng OTP thì đổi email đăng nhập, ghi emailVerifiedAt và Audit Log EMAIL_CHANGED. Mã chỉ dùng được một lần.',
+      security,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', additionalProperties: false, required: ['code'], properties: { code: { type: 'string', pattern: '^\\d{6}$' } } },
+          },
+        },
+      },
+      responses: {
+        '200': ok,
+        '400': { description: 'VALIDATION_ERROR hoặc INVALID_EMAIL_CHANGE_CODE (sai, hết hạn hoặc đã dùng)' },
+        '401': unauthorized,
+        '403': inactive,
+        '409': { description: 'Email vừa bị tài khoản khác dùng (ACCOUNT_EXISTS)' },
+      },
+    },
+  },
 } as const

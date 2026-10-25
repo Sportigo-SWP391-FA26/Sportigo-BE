@@ -61,7 +61,9 @@ export async function sendPasswordResetEmail(input: {
   })
 }
 
-async function sendEmail(input: { to: string; subject: string; text: string; html: string }) {
+// TEMP(FR-05): thêm "export" để users gửi email OTP đổi email bằng cùng webhook; logic không đổi.
+// Khi Tài có hàm gửi mail dùng chung chính thức thì sửa import trong users/email-change.mail.ts và xóa comment này.
+export async function sendEmail(input: { to: string; subject: string; text: string; html: string }) {
   if (!env.GMAIL_WEBHOOK_URL || !env.GMAIL_WEBHOOK_SECRET) {
     if (env.NODE_ENV === 'production') throw new Error('Gmail HTTPS webhook configuration is required in production')
     return

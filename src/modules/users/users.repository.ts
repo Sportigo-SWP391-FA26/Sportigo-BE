@@ -52,6 +52,45 @@ export function changePassword(userId: number, passwordHash: string) {
   })
 }
 
+// FR-05 đổi email: kiểm tra email đã thuộc tài khoản nào chưa (kể cả tài khoản bị khóa)
+export function findUserIdByEmail(email: string) {
+  return prisma.user.findUnique({ where: { email }, select: { id: true } })
+}
+
+// note: mỗi người chỉ giữ 1 yêu cầu đang chờ; xóa yêu cầu cũ chưa dùng rồi tạo mới trong cùng transaction
+export function replaceEmailChangeRequest(input: { userId: number; newEmail: string; tokenHash: string; expiresAt: Date }) {
+  return prisma.$transaction([
+    prisma.emailChangeRequest.deleteMany({ where: { userId: input.userId, usedAt: null } }),
+    prisma.emailChangeRequest.create({ data: input, select: { id: true, expiresAt: true } }),
+  ])
+}
+
+export function findPendingEmailChange(userId: number) {
+  return prisma.emailChangeRequest.findFirst({ where: { userId, usedAt: null }, orderBy: { createdAt: 'desc' } })
+}
+
+export function applyEmailChange(input: { requestId: number; userId: number; oldEmail: string; newEmail: string }) {
+  return prisma.$transaction(async (tx) => {
+    // note: đánh dấu đã dùng có điều kiện → 2 request xác nhận cùng lúc chỉ 1 cái thành công, mã không dùng lại được
+    const consumed = await tx.emailChangeRequest.updateMany({
+      where: { id: input.requestId, userId: input.userId, usedAt: null, expiresAt: { gt: new Date() } },
+      data: { usedAt: new Date() },
+    })
+    if (consumed.count !== 1) return null
+    // note: email mới đã chứng minh sở hữu bằng OTP nên ghi luôn thời điểm xác minh
+    await tx.user.update({ where: { id: input.userId }, data: { email: input.newEmail, emailVerifiedAt: new Date() } })
+    await audit(tx, {
+      actorId: input.userId,
+      action: 'EMAIL_CHANGED',
+      entityType: 'User',
+      entityId: input.userId,
+      oldData: { email: input.oldEmail },
+      newData: { email: input.newEmail },
+    })
+    return tx.user.findUniqueOrThrow({ where: { id: input.userId }, include: profileInclude })
+  })
+}
+
 // note: P2002 = vi phạm unique constraint (vd. 2 request cùng lúc lấy 1 số điện thoại)
 export function isUniqueViolation(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'

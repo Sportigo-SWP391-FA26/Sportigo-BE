@@ -1,17 +1,38 @@
 import bcrypt from 'bcryptjs'
+import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { HttpError } from '../../lib/http-error.js'
+import { sendEmailChangeCode } from './email-change.mail.js'
 // TEMP(FR-62): createSession được export tạm từ auth.service.ts, xem comment tại đó
 import { createSession } from '../auth/auth.service.js'
 import {
+  applyEmailChange,
   changePassword as savePassword,
   findOtherUserByPhone,
+  findPendingEmailChange,
   findProfileById,
+  findUserIdByEmail,
   isUniqueViolation,
+  replaceEmailChangeRequest,
   updateProfile,
   type ProfileChanges,
   type ProfileRow,
 } from './users.repository.js'
-import { COACH_FIELDS, MEMBER_FIELDS, type ChangePasswordInput, type UpdateProfileInput } from './users.schema.js'
+import {
+  COACH_FIELDS,
+  MEMBER_FIELDS,
+  type ChangePasswordInput,
+  type EmailChangeInput,
+  type UpdateProfileInput,
+} from './users.schema.js'
+
+// note: OTP đổi email sống 10 phút, bằng thời hạn OTP xác minh/quên mật khẩu của module auth
+const EMAIL_CHANGE_TTL_MS = 10 * 60 * 1000
+// note: băm OTP kèm userId và email mới → mã của người này không dùng được cho người khác hay email khác
+const hashEmailCode = (userId: number, newEmail: string, code: string) =>
+  createHash('sha256').update(`${userId}:${newEmail}:${code}`).digest('hex')
+
+const emailTaken = () => new HttpError(409, 'Email đã được sử dụng', 'ACCOUNT_EXISTS', { field: 'newEmail' })
+const invalidEmailCode = () => new HttpError(400, 'Mã OTP không đúng hoặc đã hết hạn', 'INVALID_EMAIL_CHANGE_CODE')
 
 // Cột @db.Date: trả "YYYY-MM-DD" thay vì timestamp nửa đêm UTC
 const toDateOnly = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null)
@@ -124,4 +145,57 @@ export async function changePassword(userId: number, input: ChangePasswordInput)
   const message = 'Đổi mật khẩu thành công. Các phiên đăng nhập khác đã bị đăng xuất.'
   // note: mọi refresh token (kể cả của phiên này) vừa bị thu hồi → cấp phiên mới để người đang đổi không bị đăng xuất
   return { message, ...(await createSession(user)) }
+}
+
+// FR-05 đổi email, bước 1: kiểm tra mật khẩu, gửi OTP tới email mới. Email thật CHƯA đổi ở bước này.
+export async function requestEmailChange(userId: number, input: EmailChangeInput) {
+  const user = await requireActiveUser(userId)
+  // note: bắt nhập lại mật khẩu để người cầm máy đang đăng nhập sẵn không đổi được email đăng nhập của chủ tài khoản
+  if (!(await bcrypt.compare(input.currentPassword, user.passwordHash))) {
+    throw new HttpError(400, 'Mật khẩu hiện tại không đúng', 'INVALID_CURRENT_PASSWORD')
+  }
+  if (input.newEmail === user.email) throw new HttpError(400, 'Email mới phải khác email hiện tại', 'SAME_AS_CURRENT_EMAIL')
+  // note: báo trùng sớm để người dùng không phải chờ OTP rồi mới biết email đã có người dùng
+  if (await findUserIdByEmail(input.newEmail)) throw emailTaken()
+
+  // note: OTP 6 chữ số giống luồng xác minh email của auth; chỉ lưu hash, không lưu mã gốc
+  const code = randomInt(100_000, 1_000_000).toString()
+  const [, created] = await replaceEmailChangeRequest({
+    userId,
+    newEmail: input.newEmail,
+    tokenHash: hashEmailCode(userId, input.newEmail, code),
+    expiresAt: new Date(Date.now() + EMAIL_CHANGE_TTL_MS),
+  })
+  try {
+    await sendEmailChangeCode({ email: input.newEmail, displayName: user.displayName, code })
+  } catch (error) {
+    // note: không gửi được thì người dùng không có mã để xác nhận → báo lỗi để họ bấm gửi lại
+    console.error('Email change code could not be delivered', error)
+    throw new HttpError(502, 'Chưa gửi được mã xác nhận tới email mới, vui lòng thử lại', 'EMAIL_DELIVERY_FAILED')
+  }
+  return { message: 'Đã gửi mã OTP tới email mới.', newEmail: input.newEmail, expiresAt: created.expiresAt }
+}
+
+// FR-05 đổi email, bước 2: nhập đúng OTP thì mới thay email đăng nhập
+export async function confirmEmailChange(userId: number, code: string) {
+  const user = await requireActiveUser(userId)
+  const pending = await findPendingEmailChange(userId)
+  // note: so sánh hash bằng timingSafeEqual để thời gian phản hồi không lộ mã đúng tới đâu (giống auth.verifyEmail)
+  const supplied = Buffer.from(hashEmailCode(userId, pending?.newEmail ?? '', code))
+  const stored = Buffer.from(pending?.tokenHash ?? hashEmailCode(0, '', 'invalid'))
+  const matches = supplied.length === stored.length && timingSafeEqual(supplied, stored)
+  if (!pending || !matches || pending.expiresAt <= new Date()) throw invalidEmailCode()
+
+  // note: trong 10 phút chờ OTP có thể người khác đã đăng ký đúng email đó → kiểm tra lại trước khi ghi
+  if (await findUserIdByEmail(pending.newEmail)) throw emailTaken()
+  try {
+    const updated = await applyEmailChange({ requestId: pending.id, userId, oldEmail: user.email, newEmail: pending.newEmail })
+    // note: null = mã vừa bị dùng/hết hạn bởi request khác chen giữa
+    if (!updated) throw invalidEmailCode()
+    return toProfile(updated)
+  } catch (error) {
+    // note: unique của cột email là chốt chặn cuối khi 2 người cùng lấy một email
+    if (isUniqueViolation(error)) throw emailTaken()
+    throw error
+  }
 }
