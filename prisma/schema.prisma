@@ -32,8 +32,10 @@ model User {
   coach                     Coach?
   emailVerificationTokens   EmailVerificationToken[]
   member                    Member?
+  receptionist              Receptionist?
   notifications             Notification[]
   passwordResetTokens       PasswordResetToken[]
+  emailChangeRequests       EmailChangeRequest[]
   collectedPayments         Payment[]                @relation("PaymentCollector")
   paymentAdjustments        PaymentAdjustment[]
   refreshTokens             RefreshToken[]
@@ -53,6 +55,20 @@ model EmailVerificationToken {
   id        Int       @id @default(autoincrement())
   tokenHash String    @unique
   userId    Int
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+// Yêu cầu đổi email (FR-05): lưu email mới + hash OTP, chỉ đổi email thật sau khi nhập đúng OTP gửi tới email mới
+model EmailChangeRequest {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  newEmail  String    @db.VarChar(255)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
@@ -120,6 +136,14 @@ model Coach {
   markedAttendances              SessionAttendance[]
   createdWorkoutPlans            WorkoutPlan[]
   markedPrivateCourseAttendances PrivateCourseAttendance[]
+}
+
+// Hồ sơ nhân sự lễ tân, giữ mã nhân sự giống coachCode của Coach (FR-07)
+model Receptionist {
+  userId    Int       @id
+  staffCode String    @unique @db.VarChar(30)
+  hiredAt   DateTime? @db.Date
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Bảng trung gian quản lý môn thể thao mà Coach có thể dạy (FR-14, FR-31)

@@ -3,6 +3,8 @@ import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { OAuth2Client } from 'google-auth-library'
 import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
+import { prisma } from '../../lib/prisma.js'
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 import type { LoginInput, RegisterInput } from './auth.schema.js'
 import {
   activateVerifiedUser,
@@ -33,7 +35,9 @@ function publicUser(user: { id: number; email: string; phone: string | null; dis
   return { id: user.id, email: user.email, phone: user.phone, displayName: user.displayName, role: user.role.name }
 }
 
-async function createSession(user: { id: number; role: { name: string } }) {
+// TEMP(FR-62): thêm "export" để users.service cấp phiên mới sau khi đổi mật khẩu; logic không đổi.
+// Khi Tài export chính thức (hoặc đổi tên/chuyển chỗ) thì sửa import trong users.service.ts và xóa comment này.
+export async function createSession(user: { id: number; role: { name: string } }) {
   const tokenId = randomUUID()
   const refreshToken = createRefreshToken({ userId: user.id, role: user.role.name, tokenId })
   await saveRefreshToken(hash(refreshToken), user.id, new Date(Date.now() + REFRESH_TTL_MS))
@@ -98,6 +102,8 @@ export async function verifyEmail(email: string, code: string) {
     throw new HttpError(400, 'Mã OTP không đúng hoặc đã hết hạn', 'INVALID_VERIFICATION_CODE')
   }
   await activateVerifiedUser(record.id, record.userId)
+  // note(FR-54): thông báo chào mừng sau khi xác minh email thành công
+  await notify(prisma, { userIds: [record.userId], type: NOTIFICATION_TYPES.ACCOUNT_VERIFIED, title: 'Tài khoản đã được xác minh', content: 'Chào mừng bạn đến với Sportigo! Email của bạn đã được xác minh, bạn có thể đăng ký lớp và khóa học.' })
   return { message: 'Email đã được xác minh. Bạn có thể đăng nhập.' }
 }
 

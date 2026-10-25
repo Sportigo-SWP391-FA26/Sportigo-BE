@@ -4,6 +4,12 @@ import { Router } from 'express'
 import { authRouter } from '../modules/auth/auth.routes.js'
 import { trainingRouter } from '../modules/training/training.routes.js'
 import { financeRouter } from '../modules/finance/finance.routes.js'
+import { usersRouter } from '../modules/users/users.routes.js'
+import { staffRouter } from '../modules/users/staff.routes.js'
+import { membersRouter } from '../modules/users/members.routes.js'
+import { coachMembersRouter } from '../modules/users/coach-members.routes.js'
+import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
+import { supportRouter } from '../modules/support/support.routes.js'
 
 import sportRoutes from '../modules/sports/sport.routes.js'
 import roomRoutes from '../modules/rooms/room.routes.js'
@@ -20,6 +26,24 @@ export const apiRouter = Router()
 
 // Authentication
 apiRouter.use('/auth', authRouter)
+
+// Profile (FR-05, FR-62)
+apiRouter.use('/users', usersRouter)
+
+// Staff management (FR-07)
+apiRouter.use('/staff', staffRouter)
+
+// Member management (FR-08)
+apiRouter.use('/members', membersRouter)
+
+// Coach's members (FR-11); phải đứng trước '/coaches' để "me" không bị coi là id coach
+apiRouter.use('/coaches/me/members', coachMembersRouter)
+
+// Notifications (FR-54)
+apiRouter.use('/notifications', notificationsRouter)
+
+// Support requests (FR-55, FR-56)
+apiRouter.use('/support-requests', supportRouter)
 
 // Training and finance
 apiRouter.use(trainingRouter)

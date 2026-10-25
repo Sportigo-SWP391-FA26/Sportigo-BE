@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
 import { lockGroupClass } from '../../lib/group-class-lock.js';
 import { prisma } from '../../lib/prisma.js';
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
 
 const OFFER_DURATION_MS = 2 * 60 * 60 * 1000;
 
@@ -122,6 +123,13 @@ export class WaitlistService {
       data: { status: WaitlistStatus.OFFERED, offeredAt: now, offerExpiresAt },
     });
     if (claimed.count !== 1) return null;
+    // note(FR-54): báo cho người được mời trong cùng transaction; mời thất bại thì không có thông báo
+    await notify(tx, {
+      userIds: [nextInLine.memberId],
+      type: NOTIFICATION_TYPES.WAITLIST_OFFER,
+      title: 'Bạn được mời vào lớp từ danh sách chờ',
+      content: `Lớp "${classInfo.name}" vừa có chỗ trống. Vui lòng xác nhận và thanh toán trước ${offerExpiresAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}.`,
+    });
     return tx.classWaitlist.findUnique({
       where: { memberId_classId: { memberId: nextInLine.memberId, classId } },
     });
