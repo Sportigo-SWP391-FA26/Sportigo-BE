@@ -4,6 +4,19 @@ import privateCourseService from './private.service.js';
 import { getAuthUser } from '../../middleware/auth.js';
 
 export class PrivateCourseController {
+  async getCourse(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const course = await privateCourseService.getCourse(Number(req.params.id));
+      res.status(200).json({ success: true, data: course });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+
   async getCourses(
     req: Request,
     res: Response,
@@ -178,6 +191,31 @@ export class PrivateCourseController {
         scheduleId,
         sessionDate,
         coachId,
+      );
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+
+  async changeOccurrence(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { id: memberId } = getAuthUser(req);
+      const { sessionDate } = req.params;
+      if (typeof sessionDate !== 'string') {
+        res.status(400).json({ success: false, message: 'Ngày buổi học không hợp lệ.' });
+        return;
+      }
+      const result = await privateCourseService.changePrivateCourseOccurrence(
+        Number(req.params.id),
+        Number(req.params.scheduleId),
+        sessionDate,
+        memberId,
+        req.body,
       );
       res.status(200).json({ success: true, data: result });
     } catch (error: unknown) {

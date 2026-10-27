@@ -14,6 +14,7 @@ const { prisma } = vi.hoisted(() => ({  notification: { createMany: vi.fn() },
     room: { findUnique: vi.fn() },
     notification: { createMany: vi.fn() },
     scheduleChange: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   },
 }))
@@ -21,7 +22,7 @@ vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn(function PrismaClientMock() {
     return prisma
   }),
-  SessionStatus: { SCHEDULED: 'SCHEDULED' },
+  SessionStatus: { SCHEDULED: 'SCHEDULED', CANCELLED: 'CANCELLED' },
   AvailabilityStatus: { AVAILABLE: 'AVAILABLE' },
 }))
 import { SessionService } from '../../src/modules/class-sessions/session.service.js'
@@ -29,6 +30,7 @@ const service = new SessionService()
 describe('FR-17–FR-20 Class session scheduling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    prisma.notification.createMany.mockResolvedValue({ count: 1 })
     prisma.classRegistration.findMany.mockResolvedValue([])
     prisma.privateCourseSchedule.findMany.mockResolvedValue([])
     prisma.coachAvailability.findMany.mockResolvedValue([{
@@ -67,6 +69,27 @@ describe('FR-17–FR-20 Class session scheduling', () => {
       ),
     ).resolves.toBe(true)
     expect(prisma.privateCourseSchedule.findFirst).not.toHaveBeenCalled()
+  })
+  it('ignores a cancelled private-course occurrence when checking Coach conflicts', async () => {
+    const startsAt = new Date('2026-11-01T10:00:00Z')
+    prisma.classSession.findFirst.mockResolvedValue(null)
+    prisma.privateCourseSchedule.findMany.mockResolvedValue([{
+      coachId: 10,
+      roomId: 2,
+      dayOfWeek: 0,
+      effectiveFrom: new Date('2026-10-01T00:00:00Z'),
+      effectiveTo: new Date('2026-12-01T00:00:00Z'),
+      startTime: new Date('1970-01-01T10:00:00Z'),
+      endTime: new Date('1970-01-01T11:00:00Z'),
+      enrollment: { coachId: 10, memberId: 20 },
+      exceptions: [{ sessionDate: new Date('2026-11-01T00:00:00Z'), action: 'CANCELLED' }],
+    }])
+
+    await expect(service.checkCoachConflict(
+      10,
+      startsAt,
+      new Date('2026-11-01T11:00:00Z'),
+    )).resolves.toBe(false)
   })
   it('rejects a session whose end is not after its start', async () => {
     await expect(
@@ -298,6 +321,38 @@ describe('FR-17–FR-20 Class session scheduling', () => {
         expect.objectContaining({ userId: 10, type: 'SCHEDULE_CHANGE' }),
         expect.objectContaining({ userId: 20, type: 'SCHEDULE_CHANGE' }),
         expect.objectContaining({ userId: 21, type: 'SCHEDULE_CHANGE' }),
+      ]),
+    })
+  })
+  it('cancels a future session and records audit and notification', async () => {
+    const startsAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    prisma.classSession.findUnique.mockResolvedValue({
+      id: 5,
+      status: 'SCHEDULED',
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 60 * 60 * 1000),
+      roomId: 1,
+      groupClass: { name: 'Test Class', coachId: 10, registrations: [{ memberId: 20 }] },
+      attendances: [],
+    })
+    prisma.classSession.update.mockResolvedValue({ id: 5, status: 'CANCELLED' })
+
+    await expect(service.cancelSession(5, 99, 'Coach unavailable')).resolves.toMatchObject({
+      id: 5,
+      status: 'CANCELLED',
+    })
+
+    expect(prisma.classSession.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { status: 'CANCELLED' },
+    })
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'CLASS_SESSION_CANCELLED', actorId: 99 }),
+    })
+    expect(prisma.notification.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({ userId: 10, type: 'SCHEDULE_CHANGE' }),
+        expect.objectContaining({ userId: 20, type: 'SCHEDULE_CHANGE' }),
       ]),
     })
   })

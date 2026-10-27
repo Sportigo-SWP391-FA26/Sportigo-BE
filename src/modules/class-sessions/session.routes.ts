@@ -12,7 +12,8 @@ router.post(
   '/:id/change',
   authenticate,
   authorize('CENTER_MANAGER'),
-  sessionController.changeSession
+  sessionController.changeSession,
 );
+router.post('/:id/cancel', authenticate, authorize('CENTER_MANAGER'), sessionController.cancelSession);
 
 export default router;

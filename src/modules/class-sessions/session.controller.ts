@@ -79,6 +79,22 @@ export class SessionController {
       next(error)
     }
   }
+
+  async cancelSession(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const sessionId = Number(req.params.id)
+      const actorId = getAuthUser(req).id
+      const { reason } = req.body as { reason?: unknown }
+      if (typeof reason !== 'string' || !reason.trim()) {
+        res.status(400).json({ success: false, message: 'Lý do hủy buổi học là bắt buộc.' })
+        return
+      }
+      const cancelled = await sessionService.cancelSession(sessionId, actorId, reason)
+      res.status(200).json({ success: true, data: cancelled })
+    } catch (error: unknown) {
+      next(error)
+    }
+  }
 }
 
 export default new SessionController()

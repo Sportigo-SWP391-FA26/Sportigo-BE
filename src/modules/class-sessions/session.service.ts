@@ -2,6 +2,8 @@
 import { PrismaClient, SessionStatus } from '@prisma/client'
 import coachService from '../coaches/coach.service.js'
 import { HttpError } from '../../lib/http-error.js'
+import { audit } from '../../lib/audit.js'
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 
 const prisma = new PrismaClient()
 
@@ -13,6 +15,10 @@ function timeOnDate(date: Date, time: { hours: number; minutes: number }) {
   const result = new Date(date)
   result.setUTCHours(time.hours, time.minutes, 0, 0)
   return result
+}
+
+function overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
+  return startA < endB && endA > startB
 }
 
 function parseDateOnly(value: string | Date) {
@@ -106,36 +112,106 @@ export class SessionService {
     }
 
     // 2. Kiểm tra lịch khóa học 1-1.
-    const dayOfWeek = startsAt.getUTCDay()
-    const timeStringStart = startsAt.toISOString().substring(11, 19)
-    const timeStringEnd = endsAt.toISOString().substring(11, 19)
+    return this.checkPrivateScheduleConflict(startsAt, endsAt, { coachId })
+  }
 
-    const overlappingPrivateSchedules =
-      await prisma.privateCourseSchedule.findFirst({
-        where: {
-          status: 'ACTIVE',
-          enrollment: {
-            coachId,
+  private async checkPrivateScheduleConflict(
+    startsAt: Date,
+    endsAt: Date,
+    resources: { coachId?: number; memberIds?: number[]; roomId?: number },
+  ) {
+    const resourceFilters: object[] = []
+    if (resources.coachId !== undefined) {
+      resourceFilters.push({ enrollment: { coachId: resources.coachId } })
+    }
+    if (resources.memberIds?.length) {
+      resourceFilters.push({ enrollment: { memberId: { in: resources.memberIds } } })
+    }
+    if (resources.roomId !== undefined) resourceFilters.push({ roomId: resources.roomId })
+    if (resourceFilters.length === 0) return false
+
+    const sessionDay = dateOnly(startsAt)
+    const schedules = await prisma.privateCourseSchedule.findMany({
+      where: {
+        status: 'ACTIVE',
+        enrollment: { status: 'ACTIVE' },
+        AND: [
+          { OR: resourceFilters },
+          {
+            OR: [
+              {
+                dayOfWeek: startsAt.getUTCDay(),
+                effectiveFrom: { lte: sessionDay },
+                effectiveTo: { gte: sessionDay },
+              },
+              {
+                exceptions: {
+                  some: {
+                    action: 'RESCHEDULED',
+                    rescheduledStartsAt: { lt: endsAt },
+                    rescheduledEndsAt: { gt: startsAt },
+                  },
+                },
+              },
+            ],
           },
-          dayOfWeek,
-          effectiveFrom: { lte: dateOnly(startsAt) },
-          effectiveTo: { gte: dateOnly(startsAt) },
-          AND: [
-            {
-              startTime: {
-                lt: new Date(`1970-01-01T${timeStringEnd}Z`),
+        ],
+      },
+      include: {
+        enrollment: { select: { coachId: true, memberId: true } },
+        exceptions: {
+          where: {
+            OR: [
+              { sessionDate: sessionDay },
+              {
+                action: 'RESCHEDULED',
+                rescheduledStartsAt: { lt: endsAt },
+                rescheduledEndsAt: { gt: startsAt },
               },
-            },
-            {
-              endTime: {
-                gt: new Date(`1970-01-01T${timeStringStart}Z`),
-              },
-            },
-          ],
+            ],
+          },
         },
-      })
+      },
+    })
 
-    return !!overlappingPrivateSchedules
+    return schedules.some((schedule) => {
+      const resourceConflict =
+        resources.coachId === schedule.enrollment.coachId ||
+        resources.memberIds?.includes(schedule.enrollment.memberId) ||
+        resources.roomId === schedule.roomId
+      if (!resourceConflict) return false
+
+      const exception = schedule.exceptions.find(
+        (item) => item.sessionDate.getTime() === sessionDay.getTime(),
+      )
+      const hasRecurringOccurrence =
+        schedule.dayOfWeek === startsAt.getUTCDay() &&
+        schedule.effectiveFrom <= sessionDay &&
+        schedule.effectiveTo >= sessionDay
+      const recurringConflict =
+        hasRecurringOccurrence &&
+        exception?.action !== 'CANCELLED' &&
+        exception?.action !== 'RESCHEDULED' &&
+        overlaps(
+          startsAt,
+          endsAt,
+          timeOnDate(sessionDay, {
+            hours: schedule.startTime.getUTCHours(),
+            minutes: schedule.startTime.getUTCMinutes(),
+          }),
+          timeOnDate(sessionDay, {
+            hours: schedule.endTime.getUTCHours(),
+            minutes: schedule.endTime.getUTCMinutes(),
+          }),
+        )
+      const movedOccurrenceConflict = schedule.exceptions.some((item) =>
+        item.action === 'RESCHEDULED' &&
+        item.rescheduledStartsAt !== null &&
+        item.rescheduledEndsAt !== null &&
+        overlaps(startsAt, endsAt, item.rescheduledStartsAt, item.rescheduledEndsAt),
+      )
+      return recurringConflict || movedOccurrenceConflict
+    })
   }
 
   private async checkMemberConflict(
@@ -167,27 +243,7 @@ export class SessionService {
     })
     if (overlappingClass) return true
 
-    const sessionDay = dateOnly(startsAt)
-    const schedules = await prisma.privateCourseSchedule.findMany({
-      where: {
-        status: 'ACTIVE',
-        dayOfWeek: startsAt.getUTCDay(),
-        effectiveFrom: { lte: sessionDay },
-        effectiveTo: { gte: sessionDay },
-        enrollment: { memberId: { in: memberIds }, status: 'ACTIVE' },
-      },
-    })
-    return schedules.some((schedule) => {
-      const scheduledStart = timeOnDate(sessionDay, {
-        hours: schedule.startTime.getUTCHours(),
-        minutes: schedule.startTime.getUTCMinutes(),
-      })
-      const scheduledEnd = timeOnDate(sessionDay, {
-        hours: schedule.endTime.getUTCHours(),
-        minutes: schedule.endTime.getUTCMinutes(),
-      })
-      return startsAt < scheduledEnd && endsAt > scheduledStart
-    })
+    return this.checkPrivateScheduleConflict(startsAt, endsAt, { memberIds })
   }
 
   /**
@@ -259,6 +315,9 @@ export class SessionService {
         'Phòng tập đã có lịch sử dụng vào khung giờ này.',
         'ROOM_SCHEDULE_CONFLICT',
       )
+    }
+    if (await this.checkPrivateScheduleConflict(startsAt, endsAt, { roomId: data.roomId })) {
+      throw new HttpError(409, 'Phòng tập đã có lịch khóa học cá nhân vào khung giờ này.', 'ROOM_SCHEDULE_CONFLICT')
     }
 
     // FR-19: Kiểm tra xung đột huấn luyện viên.
@@ -537,6 +596,9 @@ export class SessionService {
         'ROOM_SCHEDULE_CONFLICT',
       )
     }
+    if (await this.checkPrivateScheduleConflict(newStartsAt, newEndsAt, { roomId: newRoomId })) {
+      throw new HttpError(409, 'Phòng tập mới đã có lịch khóa học cá nhân.', 'ROOM_SCHEDULE_CONFLICT')
+    }
 
     // 7. Kiểm tra xung đột huấn luyện viên.
     const isCoachBusy = await this.checkCoachConflict(
@@ -561,7 +623,37 @@ export class SessionService {
       throw new HttpError(409, 'Huấn luyện viên không khả dụng trong khung giờ mới.', 'COACH_UNAVAILABLE')
     }
 
-    // 8. Chuẩn bị người nhận thông báo.
+    // Kiểm tra xung đột lịch của các hội viên đã đăng ký lớp.
+    const memberIds = session.groupClass.registrations.map((registration) => registration.memberId)
+    if (memberIds.length > 0) {
+      const overlappingClass = await prisma.classSession.findFirst({
+        where: {
+          id: { not: sessionId },
+          status: SessionStatus.SCHEDULED,
+          startsAt: { lt: newEndsAt },
+          endsAt: { gt: newStartsAt },
+          groupClass: {
+            registrations: {
+              some: { memberId: { in: memberIds }, status: 'CONFIRMED' },
+            },
+          },
+        },
+      })
+      if (overlappingClass) {
+        throw new HttpError(409, 'Lịch của hội viên bị trùng với buổi học khác.', 'MEMBER_SCHEDULE_CONFLICT')
+      }
+
+      const memberScheduleConflict = await this.checkPrivateScheduleConflict(
+        newStartsAt,
+        newEndsAt,
+        { memberIds },
+      )
+      if (memberScheduleConflict) {
+        throw new HttpError(409, 'Lịch của hội viên bị trùng với khóa học cá nhân.', 'MEMBER_SCHEDULE_CONFLICT')
+      }
+    }
+
+    // Chuẩn bị người nhận thông báo.
     const recipientIds = [
       session.groupClass.coachId,
       ...session.groupClass.registrations.map(
@@ -581,7 +673,7 @@ export class SessionService {
     const content =
       `Lịch buổi học "${session.groupClass.name}" đã thay đổi. ` +
       `Thời gian mới: ${timeFormatter.format(newStartsAt)} – ` +
-      `${timeFormatter.format(newEndsAt)}. ` +
+      `${timeFormatter.format(newEndsAt)} tại phòng ${room.name}. ` +
       `Lý do: ${reason}`
 
     // 9. Cập nhật lịch, lưu lịch sử và tạo thông báo nguyên tử.
@@ -607,18 +699,76 @@ export class SessionService {
         },
       })
 
-      if (uniqueRecipientIds.length > 0) {
-        await tx.notification.createMany({
-          data: uniqueRecipientIds.map((userId) => ({
-            userId,
-            title: 'Thông báo thay đổi lịch học',
-            content,
-            type: 'SCHEDULE_CHANGE',
-          })),
-        })
-      }
+      await audit(tx, {
+        actorId: changedById,
+        action: 'CLASS_SESSION_RESCHEDULED',
+        entityType: 'CLASS_SESSION',
+        entityId: sessionId,
+        oldData: { startsAt: session.startsAt, endsAt: session.endsAt, roomId: session.roomId },
+        newData: { startsAt: newStartsAt, endsAt: newEndsAt, roomId: newRoomId, reason },
+      })
+      await notify(tx, {
+        userIds: uniqueRecipientIds,
+        type: NOTIFICATION_TYPES.SCHEDULE_CHANGE,
+        title: 'Thông báo thay đổi lịch học',
+        content,
+      })
 
       return updatedSession
+    })
+  }
+
+  async cancelSession(sessionId: number, actorId: number, reason: string) {
+    if (typeof reason !== 'string' || !reason.trim()) {
+      throw new HttpError(400, 'Lý do hủy buổi học là bắt buộc.', 'CANCELLATION_REASON_REQUIRED')
+    }
+    return prisma.$transaction(async (tx) => {
+      const session = await tx.classSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          groupClass: {
+            include: {
+              registrations: {
+                where: { status: 'CONFIRMED' },
+                select: { memberId: true },
+              },
+            },
+          },
+          attendances: { select: { id: true } },
+        },
+      })
+      if (!session) throw new HttpError(404, 'Không tìm thấy buổi học.', 'SESSION_NOT_FOUND')
+      if (session.status !== SessionStatus.SCHEDULED) {
+        throw new HttpError(409, 'Chỉ có thể hủy buổi học đang được lên lịch.', 'SESSION_NOT_SCHEDULED')
+      }
+      if (session.startsAt <= new Date() || session.attendances.length > 0) {
+        throw new HttpError(409, 'Không thể hủy buổi học đã bắt đầu hoặc đã có attendance.', 'SESSION_ALREADY_STARTED')
+      }
+
+      const updated = await tx.classSession.update({
+        where: { id: sessionId },
+        data: { status: SessionStatus.CANCELLED },
+      })
+      const cleanReason = reason.trim()
+      await audit(tx, {
+        actorId,
+        action: 'CLASS_SESSION_CANCELLED',
+        entityType: 'CLASS_SESSION',
+        entityId: sessionId,
+        oldData: { status: session.status, startsAt: session.startsAt, endsAt: session.endsAt, roomId: session.roomId },
+        newData: { status: SessionStatus.CANCELLED, reason: cleanReason },
+      })
+      await notify(tx, {
+        userIds: [session.groupClass.coachId, ...session.groupClass.registrations.map((item) => item.memberId)],
+        type: NOTIFICATION_TYPES.SCHEDULE_CHANGE,
+        title: 'Buổi học đã bị hủy',
+        content: `Buổi học "${session.groupClass.name}" vào ${new Intl.DateTimeFormat('vi-VN', {
+          dateStyle: 'short',
+          timeStyle: 'short',
+          timeZone: 'Asia/Ho_Chi_Minh',
+        }).format(session.startsAt)} đã bị hủy. Lý do: ${cleanReason}`,
+      })
+      return updated
     })
   }
 }

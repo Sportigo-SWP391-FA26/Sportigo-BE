@@ -4,13 +4,18 @@ const { prisma } = vi.hoisted(() => ({ prisma: {
   sport: { findUnique: vi.fn() }, coach: { findUnique: vi.fn() },
   classSession: { findFirst: vi.fn() }, privateCourseSchedule: { findFirst: vi.fn() },
   coachAvailability: { findMany: vi.fn() },
+  auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() },
+  $transaction: vi.fn(),
 } }))
 vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), ClassStatus: { DRAFT: 'DRAFT', OPEN: 'OPEN' }, CoachStatus: { ACTIVE: 'ACTIVE', INACTIVE: 'INACTIVE' }, SessionStatus: { SCHEDULED: 'SCHEDULED' } }))
 import { GroupClassService } from '../../src/modules/group-classes/group-class.service.js'
 const service = new GroupClassService()
 const validClass = () => ({ sportId: 1, coachId: 10, name: 'Beginner swim', capacity: 10, tuitionFee: 100, registrationOpenAt: '2026-10-01T00:00:00Z', registrationCloseAt: '2026-10-20T00:00:00Z', startDate: '2026-10-21T00:00:00Z', endDate: '2026-12-21T00:00:00Z' })
 describe('FR-15 / FR-16 Group class', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => unknown) => callback(prisma))
+  })
   it('rejects a non-positive class capacity', async () => {
     await expect(service.createGroupClass({ ...validClass(), capacity: 0 })).rejects.toThrow('Sức chứa')
   })
@@ -29,6 +34,33 @@ describe('FR-15 / FR-16 Group class', () => {
     prisma.groupClass.create.mockImplementation(async ({ data }) => data)
     await expect(service.createGroupClass(validClass())).resolves.toMatchObject({ status: 'DRAFT', sportId: 1, coachId: 10 })
   })
+  it('updates class details and writes an audit record', async () => {
+    prisma.groupClass.findUnique.mockResolvedValue({
+      id: 1,
+      coachId: 10,
+      sportId: 1,
+      name: 'Old name',
+      capacity: 10,
+      tuitionFee: 100,
+      registrationOpenAt: new Date('2026-10-01T00:00:00Z'),
+      registrationCloseAt: new Date('2026-10-20T00:00:00Z'),
+      startDate: new Date('2026-10-21T00:00:00Z'),
+      endDate: new Date('2026-12-21T00:00:00Z'),
+      registrations: [],
+      sessions: [],
+    })
+    prisma.groupClass.update.mockResolvedValue({ id: 1, name: 'Updated name', description: null })
+
+    await service.updateGroupClass(1, { name: ' Updated name ', description: null }, 99)
+
+    expect(prisma.groupClass.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { name: 'Updated name', description: null },
+    })
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ actorId: 99, action: 'GROUP_CLASS_UPDATED', entityId: '1' }),
+    })
+  })
   it('does not open a class with missing required information', async () => {
     prisma.groupClass.findUnique.mockResolvedValue({ id: 1, name: '', capacity: 10, tuitionFee: 100 })
     await expect(service.updateClassStatus(1, 'OPEN' as never)).rejects.toThrow('thiếu thông tin cơ bản')
@@ -37,7 +69,7 @@ describe('FR-15 / FR-16 Group class', () => {
   it('rejects assigning an inactive coach', async () => {
     prisma.groupClass.findUnique.mockResolvedValue({ id: 1, sportId: 1 })
     prisma.coach.findUnique.mockResolvedValue({ userId: 20, status: 'INACTIVE', coachSports: [{ sportId: 1 }] })
-    await expect(service.assignCoach(1, 20)).rejects.toThrow('không hoạt động')
+    await expect(service.assignCoach(1, 20, 99)).rejects.toThrow('không hoạt động')
   })
   it('rejects assigning a coach whose schedule overlaps an existing class session', async () => {
     prisma.groupClass.findUnique.mockResolvedValue({
@@ -47,7 +79,7 @@ describe('FR-15 / FR-16 Group class', () => {
     })
     prisma.coach.findUnique.mockResolvedValue({ userId: 20, status: 'ACTIVE', coachSports: [{ sportId: 1 }] })
     prisma.classSession.findFirst.mockResolvedValue({ id: 3 })
-    await expect(service.assignCoach(1, 20)).rejects.toThrow('trùng lịch')
+    await expect(service.assignCoach(1, 20, 99)).rejects.toThrow('trùng lịch')
     expect(prisma.groupClass.update).not.toHaveBeenCalled()
   })
 })

@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const { prisma } = vi.hoisted(() => ({ prisma: { coachAvailability: { findMany: vi.fn(), create: vi.fn() } } }))
+const { prisma } = vi.hoisted(() => ({ prisma: {
+  coach: { findUnique: vi.fn() },
+  coachAvailability: { findMany: vi.fn(), create: vi.fn() },
+  classSession: { findMany: vi.fn() },
+  privateCourseSchedule: { findMany: vi.fn() },
+} }))
 vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), AvailabilityStatus: { AVAILABLE: 'AVAILABLE' } }))
 import { CoachService } from '../../src/modules/coaches/coach.service.js'
 const service = new CoachService()
 const slot = { dayOfWeek: 2, startTime: '09:00', endTime: '11:00', effectiveFrom: '2026-10-01' }
 describe('FR-14 Coach availability', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma.coach.findUnique.mockResolvedValue({ userId: 7 })
+  })
   it('rejects a slot whose end is not after its start', async () => {
     await expect(service.addAvailability(7, { ...slot, endTime: '09:00' })).rejects.toThrow('kết thúc phải lớn hơn')
     expect(prisma.coachAvailability.findMany).not.toHaveBeenCalled()
@@ -56,5 +64,42 @@ describe('FR-14 Coach availability', () => {
     prisma.coachAvailability.findMany.mockResolvedValue([])
     await service.getCoachAvailability(7)
     expect(prisma.coachAvailability.findMany).toHaveBeenCalledWith({ where: { coachId: 7 }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] })
+  })
+  it('rejects schedule ranges longer than 90 days', async () => {
+    await expect(service.getCoachSchedule(7, '2026-01-01', '2026-04-02')).rejects.toThrow('quá 90 ngày')
+    expect(prisma.coach.findUnique).not.toHaveBeenCalled()
+  })
+  it('includes a rescheduled private occurrence in the Coach calendar when its original date is outside the range', async () => {
+    prisma.coach.findUnique.mockResolvedValue({ userId: 7 })
+    prisma.classSession.findMany.mockResolvedValue([])
+    prisma.privateCourseSchedule.findMany.mockResolvedValue([{
+      id: 8,
+      dayOfWeek: 1,
+      startTime: new Date('1970-01-01T09:00:00Z'),
+      endTime: new Date('1970-01-01T10:00:00Z'),
+      effectiveFrom: new Date('2026-09-01T00:00:00Z'),
+      effectiveTo: new Date('2026-11-30T00:00:00Z'),
+      room: { id: 1 },
+      enrollment: {
+        startDate: new Date('2026-09-01T00:00:00Z'),
+        expiryDate: new Date('2026-11-30T00:00:00Z'),
+      },
+      exceptions: [{
+        sessionDate: new Date('2026-09-28T00:00:00Z'),
+        action: 'RESCHEDULED',
+        rescheduledStartsAt: new Date('2026-10-06T10:00:00Z'),
+        rescheduledEndsAt: new Date('2026-10-06T11:00:00Z'),
+        newRoom: { id: 2 },
+      }],
+    }])
+
+    const result = await service.getCoachSchedule(7, '2026-10-01', '2026-10-07')
+
+    expect(result).toContainEqual(expect.objectContaining({
+      type: 'PRIVATE_COURSE',
+      originalDate: '2026-09-28',
+      startsAt: new Date('2026-10-06T10:00:00Z'),
+      room: { id: 2 },
+    }))
   })
 })

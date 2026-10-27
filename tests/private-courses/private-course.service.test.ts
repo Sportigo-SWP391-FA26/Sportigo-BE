@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { prisma } = vi.hoisted(() => ({ prisma: {
   privateCourse: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() }, sport: { findUnique: vi.fn() },
   coach: { findUnique: vi.fn() }, coachPrivateCourse: { findFirst: vi.fn(), upsert: vi.fn() },
   coachAvailability: { findMany: vi.fn() }, room: { findMany: vi.fn(), findUnique: vi.fn() },
   privateCourseEnrollment: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-  privateCourseSchedule: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() },
+  privateCourseSchedule: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() },
+  privateCourseScheduleException: { findUnique: vi.fn(), create: vi.fn() },
   privateCourseAttendance: { createMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn() },
   classSession: { findMany: vi.fn() },
-  serviceOrder: { create: vi.fn() }, orderItem: { create: vi.fn() }, $transaction: vi.fn(),
+  serviceOrder: { create: vi.fn() }, orderItem: { create: vi.fn() },
+  auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $transaction: vi.fn(),
 } }))
 vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), EnrollmentStatus: { PENDING_PAYMENT: 'PENDING_PAYMENT', ACTIVE: 'ACTIVE', COMPLETED: 'COMPLETED' }, OrderStatus: { PENDING_PAYMENT: 'PENDING_PAYMENT' }, OrderItemType: { PRIVATE_COURSE: 'PRIVATE_COURSE' }, ScheduleStatus: { ACTIVE: 'ACTIVE' } }))
 import { PrivateCourseService } from '../../src/modules/private-courses/private.service.js'
@@ -18,9 +20,12 @@ describe('FR-33 / FR-34 Private course enrollment and schedule', () => {
     prisma.coachAvailability.findMany.mockResolvedValue([])
     prisma.room.findMany.mockResolvedValue([])
     prisma.privateCourseSchedule.findMany.mockResolvedValue([])
+    prisma.privateCourseScheduleException.findUnique.mockResolvedValue(null)
+    prisma.notification.createMany.mockResolvedValue({ count: 1 })
     prisma.classSession.findMany.mockResolvedValue([])
     prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => unknown) => callback(prisma))
   })
+  afterEach(() => vi.useRealTimers())
   it('rejects missing or inactive private courses', async () => {
     prisma.privateCourse.findUnique.mockResolvedValue({ id: 1, status: 'INACTIVE' })
     await expect(service.createEnrollment({ memberId: 2, coachId: 3, privateCourseId: 1 })).rejects.toThrow('không ở trạng thái hoạt động')
@@ -150,6 +155,61 @@ describe('FR-33 / FR-34 Private course enrollment and schedule', () => {
     const result = await service.recordCompletedSession(6, '2026-10-22', 3)
     expect(result).toMatchObject({ attendance: { id: 8 }, remainingSessions: 3, alreadyRecorded: true })
     expect(prisma.privateCourseEnrollment.updateMany).not.toHaveBeenCalled()
+  })
+  it('only lets the enrollment owner change a private-course occurrence', async () => {
+    prisma.privateCourseSchedule.findFirst.mockResolvedValue({
+      id: 6,
+      enrollmentId: 4,
+      enrollment: { memberId: 2 },
+    })
+
+    await expect(service.changePrivateCourseOccurrence(
+      4,
+      6,
+      '2026-10-21',
+      5,
+      { action: 'CANCELLED', reason: 'Schedule conflict' },
+    )).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' })
+    expect(prisma.privateCourseScheduleException.create).not.toHaveBeenCalled()
+  })
+  it('allows a private-course cancellation exactly 24 hours before the original start', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T08:00:00.000Z'))
+    prisma.privateCourseSchedule.findFirst.mockResolvedValue({
+      id: 6,
+      enrollmentId: 4,
+      dayOfWeek: 3,
+      startTime: new Date('1970-01-01T08:00:00.000Z'),
+      endTime: new Date('1970-01-01T09:00:00.000Z'),
+      effectiveFrom: new Date('2026-10-01T00:00:00.000Z'),
+      effectiveTo: new Date('2026-11-30T00:00:00.000Z'),
+      status: 'ACTIVE',
+      roomId: 1,
+      enrollment: {
+        memberId: 2,
+        coachId: 3,
+        status: 'ACTIVE',
+        startDate: new Date('2026-10-01T00:00:00.000Z'),
+        expiryDate: new Date('2026-11-30T00:00:00.000Z'),
+      },
+      room: { id: 1 },
+      exceptions: [],
+      attendances: [],
+    })
+    prisma.privateCourseScheduleException.findUnique.mockResolvedValue(null)
+    prisma.privateCourseScheduleException.create.mockImplementation(async ({ data }) => data)
+
+    const result = await service.changePrivateCourseOccurrence(
+      4,
+      6,
+      '2026-10-21',
+      2,
+      { action: 'CANCELLED', reason: 'Unavailable' },
+    )
+
+    expect(result).toMatchObject({ action: 'CANCELLED', reason: 'Unavailable' })
+    expect(prisma.privateCourseScheduleException.create).toHaveBeenCalledOnce()
+    expect(prisma.auditLog.create).toHaveBeenCalledOnce()
   })
   it('limits members to their own enrollments', async () => {
     prisma.privateCourseEnrollment.findMany.mockResolvedValue([])

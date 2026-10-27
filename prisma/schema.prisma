@@ -224,18 +224,19 @@ model GroupClass {
 }
 
 model Room {
-  id               Int                     @id @default(autoincrement())
-  code             String                  @unique @db.VarChar(30)
-  name             String                  @db.VarChar(100)
-  capacity         Int
-  location         String?                 @db.VarChar(160)
-  status           RoomStatus              @default(AVAILABLE)
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  classSessions    ClassSession[]
-  privateSchedules PrivateCourseSchedule[]
-  newRoomChanges   ScheduleChange[]        @relation("NewRoom")
-  oldRoomChanges   ScheduleChange[]        @relation("OldRoom")
+  id                        Int                              @id @default(autoincrement())
+  code                      String                           @unique @db.VarChar(30)
+  name                      String                           @db.VarChar(100)
+  capacity                  Int
+  location                  String?                          @db.VarChar(160)
+  status                    RoomStatus                       @default(AVAILABLE)
+  createdAt                 DateTime                         @default(now())
+  updatedAt                 DateTime                         @updatedAt
+  classSessions             ClassSession[]
+  privateSchedules          PrivateCourseSchedule[]
+  privateScheduleExceptions PrivateCourseScheduleException[]
+  newRoomChanges            ScheduleChange[]                 @relation("NewRoom")
+  oldRoomChanges            ScheduleChange[]                 @relation("OldRoom")
 }
 
 model ClassSession {
@@ -393,21 +394,39 @@ model PrivateCourseEnrollment {
 }
 
 model PrivateCourseSchedule {
-  id            Int                       @id @default(autoincrement())
+  id            Int                              @id @default(autoincrement())
   enrollmentId  Int
   roomId        Int
   dayOfWeek     Int
-  startTime     DateTime                  @db.Time(6)
-  endTime       DateTime                  @db.Time(6)
-  effectiveFrom DateTime                  @db.Date
-  effectiveTo   DateTime                  @db.Date
-  status        ScheduleStatus            @default(ACTIVE)
-  enrollment    PrivateCourseEnrollment   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  room          Room                      @relation(fields: [roomId], references: [id])
+  startTime     DateTime                         @db.Time(6)
+  endTime       DateTime                         @db.Time(6)
+  effectiveFrom DateTime                         @db.Date
+  effectiveTo   DateTime                         @db.Date
+  status        ScheduleStatus                   @default(ACTIVE)
+  enrollment    PrivateCourseEnrollment          @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  room          Room                             @relation(fields: [roomId], references: [id])
   attendances   PrivateCourseAttendance[]
+  exceptions    PrivateCourseScheduleException[]
 
   @@unique([enrollmentId, dayOfWeek, startTime])
   @@index([roomId, dayOfWeek, startTime, endTime])
+}
+
+model PrivateCourseScheduleException {
+  id                  Int                           @id @default(autoincrement())
+  scheduleId          Int
+  sessionDate         DateTime                      @db.Date
+  action              PrivateCourseOccurrenceAction
+  rescheduledStartsAt DateTime?
+  rescheduledEndsAt   DateTime?
+  newRoomId           Int?
+  reason              String                        @db.VarChar(500)
+  changedAt           DateTime                      @default(now())
+  schedule            PrivateCourseSchedule         @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  newRoom             Room?                         @relation(fields: [newRoomId], references: [id])
+
+  @@unique([scheduleId, sessionDate])
+  @@index([sessionDate, action])
 }
 
 model PrivateCourseAttendance {
@@ -822,6 +841,11 @@ enum ScheduleStatus {
   ACTIVE
   PAUSED
   CANCELLED
+}
+
+enum PrivateCourseOccurrenceAction {
+  CANCELLED
+  RESCHEDULED
 }
 
 enum Priority {
