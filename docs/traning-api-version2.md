@@ -4,7 +4,7 @@ Tài liệu này tổng hợp API và nghiệp vụ backend thuộc phạm vi FR
 
 Base URL local mặc định: `http://localhost:3000/api`. Tài liệu API đang chạy có tại `http://localhost:3000/api-docs`.
 
-> Đây là hướng dẫn dựa trên routes, services và tests hiện có trong repository, không thay thế `G01_Backlog`/`G01_Rules`. Workbook backlog không có trong workspace hiện tại nên cần đối chiếu các quy tắc chi tiết với bản chính thức trước khi xác nhận hoàn tất. FR-20/BR-21 phần thông báo đổi/hủy lịch được loại khỏi phạm vi tài liệu này theo thống nhất rằng thông báo thuộc FR-54; BR-06 cũng không thuộc các FR đang phụ trách.
+> Đây là hướng dẫn dựa trên routes, services và tests hiện có trong repository, không thay thế `G01_Backlog`/`G01_Rules`. Workbook backlog không có trong workspace hiện tại nên cần đối chiếu các quy tắc chi tiết với bản chính thức trước khi xác nhận hoàn tất. BR-06 không thuộc phạm vi FR-12–FR-36.
 
 ## 1. Chạy local
 
@@ -57,8 +57,15 @@ Tiền tố chung `/api`.
 | `DELETE /rooms/:id` | CENTER_MANAGER | Xóa phòng theo điều kiện nghiệp vụ |
 | `GET /coaches/:id/availability` | Mọi role đã đăng nhập | Xem lịch khả dụng của Coach |
 | `POST /coaches/:id/availability` | CENTER_MANAGER | Thêm khung giờ khả dụng |
+| `PUT /coaches/:id/availability/:availabilityId` | CENTER_MANAGER | Sửa khung giờ khả dụng |
+| `DELETE /coaches/:id/availability/:availabilityId` | CENTER_MANAGER | Ngừng khung giờ khả dụng |
+| `GET /coaches/:id/sports` | Mọi role đã đăng nhập | Xem môn Coach có chuyên môn |
+| `POST /coaches/:id/sports` | CENTER_MANAGER | Gán chuyên môn cho Coach |
+| `DELETE /coaches/:id/sports/:sportId` | CENTER_MANAGER | Gỡ chuyên môn Coach |
+| `GET /coaches/:id/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD` | CENTER_MANAGER; Coach chỉ xem lịch của mình | Lịch tổng hợp lớp nhóm và khóa 1–1; tối đa 90 ngày |
 | `GET /group-classes` | CENTER_MANAGER | Danh sách lớp quản trị |
 | `POST /group-classes` | CENTER_MANAGER | Tạo lớp nhóm |
+| `PATCH /group-classes/:id` | CENTER_MANAGER | Sửa đầy đủ thông tin lớp |
 | `PATCH /group-classes/:id/status` | CENTER_MANAGER | Đổi trạng thái lớp |
 | `PATCH /group-classes/:id/coach` | CENTER_MANAGER | Phân công Coach |
 
@@ -73,10 +80,11 @@ Các kiểm tra chính gồm dữ liệu hợp lệ, môn/Coach đang hoạt đ�
 | `POST /group-classes/:id/sessions/recurring` | CENTER_MANAGER | Sinh các buổi học thực tế từ lịch lặp hàng tuần |
 | `POST /class-sessions` | CENTER_MANAGER | Tạo session theo payload có `classId` |
 | `POST /class-sessions/:id/change` | CENTER_MANAGER | Đổi lịch buổi học, bắt buộc có lý do |
+| `POST /class-sessions/:id/cancel` | CENTER_MANAGER | Hủy riêng một buổi học, bắt buộc có lý do |
 
 Lịch lặp được khai triển thành các bản ghi `ClassSession` riêng, không tạo bảng template recurrence. Mỗi lần diễn ra được kiểm tra xung đột Coach, Member, phòng và giới hạn ngày. Nếu có occurrence không hợp lệ, transaction không lưu dở dang các occurrence còn lại.
 
-FR-20 phần thay đổi lịch hiện có endpoint và lịch sử thay đổi. Yêu cầu thông báo Manager khi đổi/hủy lịch không được xác minh ở đây vì thuộc FR-54 theo phạm vi đã thống nhất.
+FR-20 kiểm tra trùng lịch Coach, phòng và Member, gồm cả lịch recurring khóa cá nhân; lưu lịch sử đổi, audit và thông báo Coach/Member trong cùng transaction. Hủy riêng một buổi chỉ áp dụng với session tương lai chưa có attendance, đồng thời ghi audit và thông báo người liên quan.
 
 ### FR-21–FR-29 — Booking, hủy và waitlist
 
@@ -100,6 +108,7 @@ Việc kiểm tra số chỗ và cập nhật offer được bảo vệ bằng t
 | Method & path | Role | Mô tả |
 |---|---|---|
 | `GET /private-courses` | MEMBER, COACH, RECEPTIONIST, CENTER_MANAGER | Danh sách khóa học đang hoạt động |
+| `GET /private-courses/:id` | MEMBER, COACH, RECEPTIONIST, CENTER_MANAGER | Chi tiết khóa học và Coach đủ điều kiện |
 | `POST /private-courses` | CENTER_MANAGER | Tạo khóa học |
 | `PATCH /private-courses/:id` | CENTER_MANAGER | Cập nhật khóa học/trạng thái |
 | `POST /private-courses/:id/coaches` | CENTER_MANAGER | Phân công Coach |
@@ -109,6 +118,7 @@ Việc kiểm tra số chỗ và cập nhật offer được bảo vệ bằng t
 | `GET /private-courses/enrollments` | MEMBER, COACH, RECEPTIONIST, CENTER_MANAGER | Danh sách enrollment, lọc theo quyền truy cập |
 | `GET /private-courses/enrollments/:id` | MEMBER, COACH, RECEPTIONIST, CENTER_MANAGER | Chi tiết enrollment theo quyền sở hữu/phân công |
 | `POST /private-courses/enrollments/:id/schedules` | MEMBER chủ enrollment | Thêm lịch sau khi enrollment đủ điều kiện |
+| `PATCH /private-courses/enrollments/:id/schedules/:scheduleId/occurrences/:sessionDate` | MEMBER chủ enrollment | Hủy hoặc đổi riêng một buổi học; yêu cầu trước ít nhất 24 giờ |
 | `POST /orders/:id/pay` | MEMBER là chủ order | Thanh toán order bằng ví |
 | `POST /orders/:id/payments/vnpay` | MEMBER | Khởi tạo thanh toán VNPay |
 | `GET /payments/vnpay/return` | Public/provider callback | Return URL của VNPay |
@@ -129,6 +139,12 @@ Các đường dẫn thanh toán ở trên thuộc các router finance và payme
 Ghi nhận hoàn thành buổi khóa cá nhân phải thuộc Coach được phân công và enrollment hợp lệ. Cập nhật buổi đã ghi nhận và `remainingSessions` diễn ra nguyên tử; khóa ngoại/unique bảo vệ việc ghi lặp theo lịch và ngày.
 
 Hiện private-course attendance lưu các buổi hoàn thành, chưa có trạng thái vắng/hủy riêng. Cần xác nhận G01 có yêu cầu trạng thái này trước khi mở rộng schema.
+
+### FR-63–FR-64 — Thay đổi một buổi khóa 1–1 và lịch Coach tổng hợp
+
+FR-63 lưu exception theo lịch recurring và ngày gốc; không thay đổi cả template lịch. Chỉ Member sở hữu enrollment được hủy/đổi. Thời hạn 24 giờ tính từ giờ bắt đầu ban đầu; đúng mốc 24 giờ vẫn được phép. Buổi đã hoàn thành hoặc đã có exception không thể thay đổi lần nữa. Khi đổi lịch, hệ thống giữ thời lượng gốc, kiểm tra trạng thái phòng, availability Coach và xung đột Coach/Member/phòng; attendance ngày gốc ghi nhận giờ đã đổi.
+
+FR-64 `GET /api/coaches/:id/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD` tổng hợp session lớp nhóm và từng occurrence khóa 1–1, áp dụng exception hủy/đổi và giới hạn khoảng truy vấn tối đa 90 ngày. Coach chỉ xem lịch của chính mình; Center Manager có thể xem lịch Coach được chọn.
 
 ## 4. Luồng thử nhanh
 
@@ -174,6 +190,25 @@ Gửi `{ "accept": false }` để từ chối. Offer hết hạn được worker
 
 Member tạo enrollment với `coachId`, `privateCourseId`, `startDate` và `schedules`; không gửi `memberId` để xác định chủ sở hữu. Kiểm tra trạng thái `PENDING_PAYMENT`, thanh toán order, sau đó đọc enrollment để xác nhận trạng thái được kích hoạt.
 
+### FR-63: đổi một occurrence khóa cá nhân
+
+Member gọi `PATCH /api/private-courses/enrollments/:id/schedules/:scheduleId/occurrences/:sessionDate` với một trong các body:
+
+```json
+{ "action": "CANCELLED", "reason": "Bận công việc" }
+```
+
+```json
+{
+  "action": "RESCHEDULED",
+  "newStartsAt": "2026-11-10T10:00:00.000Z",
+  "newRoomId": 2,
+  "reason": "Đã thống nhất với Coach"
+}
+```
+
+Đây là thay đổi riêng một ngày, không sửa các tuần còn lại. Coach được thông báo và thay đổi được ghi audit.
+
 ## 5. Kiểm thử
 
 Chạy toàn bộ suite:
@@ -211,17 +246,20 @@ Ma trận kiểm thử hiện có được ghi trong `tests/FR12-FR36-TEST-READM
 | FR-14 | `coaches` | `tests/coaches/coach.service.test.ts` |
 | FR-15–FR-16 | `group-classes` | `tests/group-classes/group-class.service.test.ts` |
 | FR-17–FR-19 | `class-sessions` | `tests/class-sessions/session.service.test.ts`; `tests/bookings/fr12-fr36-api-auth.integration.test.ts` |
+| FR-20 | `class-sessions` | `tests/class-sessions/session.service.test.ts` |
 | FR-21–FR-24, FR-28 | `bookings` | `tests/bookings/booking.service.test.ts`; `tests/bookings/cancellation-policy.test.ts` |
 | FR-25–FR-26 | `waitlist` | `tests/waitlist/waitlist.service.test.ts`; `tests/bookings/fr12-fr36-api-auth.integration.test.ts` |
 | FR-29 / BR-16 | `private-courses` | `tests/private-courses/private-course.schedule.integration.test.ts` |
 | FR-30–FR-35 | `private-courses`, `finance` | `tests/private-courses/private-course.service.test.ts`; `tests/finance/finance.integration.test.ts` |
 | FR-36 / BR-30 | `private-courses`, `attendance` | `tests/private-courses/private-course.attendance.integration.test.ts` |
+| FR-63 | `private-courses` | `tests/private-courses/private-course.service.test.ts` |
+| FR-64 | `coaches` | `tests/coaches/coach.service.test.ts` |
 
 ## 7. Quyết định và giới hạn cần xác nhận
 
 - Xác nhận chính sách hủy 48 giờ mặc định với G01 trước khi release; cấu hình tập trung qua `CLASS_CANCELLATION_CUTOFF_HOURS`.
 - Xác nhận FR-36/BR-30 có cần lưu riêng trạng thái vắng hoặc hủy buổi khóa cá nhân hay không.
 - G01 workbook không có trong workspace hiện tại; cần dùng tài liệu nguồn để rà soát chính xác từng BR, ngưỡng thời gian và status code.
-- Không tính FR-20/BR-21 notification vào phạm vi này theo yêu cầu đã thống nhất; thông báo đổi/hủy lịch thuộc FR-54.
+- FR-20 đổi/hủy một buổi nhóm và FR-63 exception của một buổi 1–1 đã có implementation; cần xác nhận policy, notification recipients và cancellation/refund với G01 trước release.
 - Không đưa BR-06 vào danh sách gap FR12–FR36 theo xác nhận phạm vi trước đó.
 - Test pass chứng minh các assertion hiện có chạy thành công, không tự động chứng minh toàn bộ backlog đã được xác minh.

@@ -69,6 +69,12 @@ router.post(
   authorize('COACH'),
   privateController.recordCompletedSession,
 );
+router.patch(
+  '/enrollments/:id/schedules/:scheduleId/occurrences/:sessionDate',
+  authenticate,
+  authorize('MEMBER'),
+  privateController.changeOccurrence,
+);
 
 // Thành viên chỉ được thêm lịch cho enrollment của chính mình.
 router.post(
@@ -76,6 +82,12 @@ router.post(
   authenticate,
   authorize('MEMBER'),
   privateController.addSchedule,
+);
+router.get(
+  '/:id',
+  authenticate,
+  authorize('MEMBER', 'COACH', 'RECEPTIONIST', 'CENTER_MANAGER'),
+  privateController.getCourse,
 );
 
 export default router;

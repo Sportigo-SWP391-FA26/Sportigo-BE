@@ -9,6 +9,7 @@ const router = Router();
 router.use(authenticate);
 router.get('/', authorize('CENTER_MANAGER'), groupClassController.getGroupClasses);
 router.post('/', authorize('CENTER_MANAGER'), groupClassController.createGroupClass);
+router.patch('/:id', authorize('CENTER_MANAGER'), groupClassController.updateGroupClass);
 router.patch('/:id/status', authorize('CENTER_MANAGER'), groupClassController.updateStatus);
 router.patch('/:id/coach', authorize('CENTER_MANAGER'), groupClassController.assignCoach);
 router.get(

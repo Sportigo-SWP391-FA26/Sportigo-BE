@@ -72,6 +72,47 @@ export const flow2Paths = {
       responses: created,
     }),
   },
+  '/coaches/{id}/availability/{availabilityId}': {
+    put: operation('Coaches', 'Cập nhật khung giờ khả dụng', {
+      parameters: [id(), id('availabilityId')],
+      requestBody: jsonBody(['dayOfWeek', 'startTime', 'endTime', 'effectiveFrom'], {
+        dayOfWeek: { type: 'integer', minimum: 0, maximum: 6 },
+        startTime: { type: 'string', example: '09:00' },
+        endTime: { type: 'string', example: '11:00' },
+        effectiveFrom: { type: 'string', format: 'date' },
+        effectiveTo: { type: 'string', format: 'date', nullable: true },
+      }),
+      responses: ok,
+    }),
+    delete: operation('Coaches', 'Ngừng khung giờ khả dụng', {
+      parameters: [id(), id('availabilityId')],
+      responses: ok,
+    }),
+  },
+  '/coaches/{id}/sports': {
+    get: operation('Coaches', 'Xem môn thể thao Coach được chứng nhận', { parameters: [id()], responses: ok }),
+    post: operation('Coaches', 'Gán chuyên môn thể thao cho Coach', {
+      parameters: [id()],
+      requestBody: jsonBody(['sportId'], { sportId: { type: 'integer', minimum: 1 } }),
+      responses: created,
+    }),
+  },
+  '/coaches/{id}/sports/{sportId}': {
+    delete: operation('Coaches', 'Gỡ chuyên môn thể thao của Coach', {
+      parameters: [id(), id('sportId')],
+      responses: ok,
+    }),
+  },
+  '/coaches/{id}/schedule': {
+    get: operation('Coaches', 'Lịch tổng hợp Coach (tối đa 90 ngày)', {
+      parameters: [
+        id(),
+        { ...query('from', { type: 'string', format: 'date' }), required: true },
+        { ...query('to', { type: 'string', format: 'date' }), required: true },
+      ],
+      responses: ok,
+    }),
+  },
   '/group-classes': {
     get: operation('Group Classes', 'Danh sách lớp nhóm dành cho quản lý', { responses: ok }),
     post: operation('Group Classes', 'Tạo lớp nhóm dạng nháp', {
@@ -82,6 +123,24 @@ export const flow2Paths = {
         startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' },
       }),
       responses: created,
+    }),
+  },
+  '/group-classes/{id}': {
+    patch: operation('Group Classes', 'Cập nhật thông tin đầy đủ lớp nhóm', {
+      parameters: [id()],
+      requestBody: jsonBody([], {
+        sportId: { type: 'integer', minimum: 1 },
+        coachId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        description: { type: 'string', nullable: true },
+        capacity: { type: 'integer', minimum: 1 },
+        tuitionFee: { type: 'number', minimum: 0 },
+        registrationOpenAt: { type: 'string', format: 'date-time' },
+        registrationCloseAt: { type: 'string', format: 'date-time' },
+        startDate: { type: 'string', format: 'date-time' },
+        endDate: { type: 'string', format: 'date-time' },
+      }),
+      responses: ok,
     }),
   },
   '/group-classes/{id}/status': {
@@ -118,6 +177,13 @@ export const flow2Paths = {
   '/class-sessions/{id}/change': {
     post: operation('Class Sessions', 'Đổi thời gian hoặc phòng của buổi học', { parameters: [id()], requestBody: jsonBody(['reason'], { newStartsAt: { type: 'string', format: 'date-time' }, newRoomId: { type: 'integer' }, reason: { type: 'string' } }), responses: ok }),
   },
+  '/class-sessions/{id}/cancel': {
+    post: operation('Class Sessions', 'Hủy riêng một buổi học trong lớp', {
+      parameters: [id()],
+      requestBody: jsonBody(['reason'], { reason: { type: 'string', minLength: 1 } }),
+      responses: ok,
+    }),
+  },
   '/bookings/classes': {
     get: publicOperation('Bookings', 'Tìm và lọc lớp nhóm công khai', { parameters: [query('sportId', { type: 'integer' }), query('coachId', { type: 'integer' }), query('date', { type: 'string', format: 'date' }), query('page', { type: 'integer', default: 1 }), query('limit', { type: 'integer', default: 10 })], responses: { '200': { description: 'Danh sách lớp phân trang' }, '422': standard['422'] } }),
   },
@@ -141,6 +207,7 @@ export const flow2Paths = {
     post: operation('Private Courses', 'Tạo khóa 1–1 nhiều buổi', { requestBody: jsonBody(['sportId', 'name', 'totalSessions', 'sessionDurationMinutes', 'validityDays', 'price'], { sportId: { type: 'integer' }, name: { type: 'string' }, description: { type: 'string' }, totalSessions: { type: 'integer', minimum: 2 }, sessionDurationMinutes: { type: 'integer', minimum: 1 }, validityDays: { type: 'integer', minimum: 1 }, price: { type: 'number', minimum: 0 } }), responses: created }),
   },
   '/private-courses/{id}': {
+    get: operation('Private Courses', 'Chi tiết khóa 1–1 và Coach đủ điều kiện', { parameters: [id()], responses: ok }),
     patch: operation('Private Courses', 'Cập nhật khóa 1–1', { parameters: [id()], responses: ok }),
   },
   '/private-courses/{id}/coaches': {
@@ -164,6 +231,18 @@ export const flow2Paths = {
   },
   '/private-courses/enrollments/{id}/schedules/{scheduleId}/attendance': {
     post: operation('Private Enrollments', 'Coach ghi nhận một buổi 1–1 đã hoàn thành', { parameters: [id(), id('scheduleId')], requestBody: jsonBody(['sessionDate'], { sessionDate: { type: 'string', format: 'date' } }), responses: created }),
+  },
+  '/private-courses/enrollments/{id}/schedules/{scheduleId}/occurrences/{sessionDate}': {
+    patch: operation('Private Enrollments', 'Member hủy hoặc đổi riêng một buổi trước ít nhất 24 giờ', {
+      parameters: [id(), id('scheduleId'), { name: 'sessionDate', in: 'path', required: true, schema: { type: 'string', format: 'date' } }],
+      requestBody: jsonBody(['action', 'reason'], {
+        action: { type: 'string', enum: ['CANCELLED', 'RESCHEDULED'] },
+        reason: { type: 'string', minLength: 1 },
+        newStartsAt: { type: 'string', format: 'date-time' },
+        newRoomId: { type: 'integer', minimum: 1 },
+      }),
+      responses: ok,
+    }),
   },
   '/sessions/{sessionId}/attendance': {
     get: operation('Attendance', 'Xem điểm danh của một buổi lớp nhóm', { parameters: [id('sessionId')], responses: ok }),

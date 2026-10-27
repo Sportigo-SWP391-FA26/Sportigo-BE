@@ -8,6 +8,8 @@ import {
 } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
 import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js';
+import { audit } from '../../lib/audit.js';
+import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
 
 const prisma = new PrismaClient();
 
@@ -79,6 +81,28 @@ export class PrivateCourseService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async getCourse(id: number) {
+    const course = await prisma.privateCourse.findUnique({
+      where: { id },
+      include: {
+        sport: true,
+        coaches: {
+          where: { isActive: true, coach: { status: 'ACTIVE' } },
+          include: {
+            coach: {
+              include: {
+                user: { select: { id: true, displayName: true } },
+                availabilities: { where: { status: 'AVAILABLE' }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!course) throw new HttpError(404, 'Không tìm thấy khóa học 1-1.', 'PRIVATE_COURSE_NOT_FOUND');
+    return course;
   }
 
   async createCourse(data: CourseInput) {
@@ -628,6 +652,294 @@ export class PrivateCourseService {
     });
   }
 
+  async changePrivateCourseOccurrence(
+    enrollmentId: number,
+    scheduleId: number,
+    sessionDateInput: string,
+    memberId: number,
+    input: {
+      action: 'CANCELLED' | 'RESCHEDULED';
+      reason: string;
+      newStartsAt?: string;
+      newRoomId?: number;
+    },
+  ) {
+    if (!['CANCELLED', 'RESCHEDULED'].includes(input.action)) {
+      throw new HttpError(400, 'Hành động phải là CANCELLED hoặc RESCHEDULED.', 'INVALID_OCCURRENCE_ACTION');
+    }
+    if (typeof input.reason !== 'string' || !input.reason.trim()) {
+      throw new HttpError(400, 'Lý do đổi hoặc hủy buổi học là bắt buộc.', 'OCCURRENCE_REASON_REQUIRED');
+    }
+    const sessionDate = parseDateOnly(sessionDateInput);
+    if (!sessionDate) {
+      throw new HttpError(400, 'Ngày buổi học không hợp lệ.', 'INVALID_SESSION_DATE');
+    }
+
+    const schedule = await prisma.privateCourseSchedule.findFirst({
+      where: { id: scheduleId, enrollmentId },
+      include: {
+        room: true,
+        enrollment: {
+          include: {
+            privateCourse: true,
+          },
+        },
+        exceptions: { where: { sessionDate } },
+        attendances: { where: { sessionDate }, select: { id: true } },
+      },
+    });
+    if (!schedule) throw new HttpError(404, 'Không tìm thấy lịch khóa học.', 'SCHEDULE_NOT_FOUND');
+    if (schedule.enrollment.memberId !== memberId) {
+      throw new HttpError(403, FORBIDDEN_MESSAGE, 'FORBIDDEN');
+    }
+    if (
+      schedule.status !== ScheduleStatus.ACTIVE ||
+      schedule.enrollment.status !== EnrollmentStatus.ACTIVE
+    ) {
+      throw new HttpError(409, 'Chỉ có thể đổi lịch khóa học đang hoạt động.', 'ENROLLMENT_NOT_ACTIVE');
+    }
+    if (
+      sessionDate < dateOnly(schedule.effectiveFrom) ||
+      sessionDate > dateOnly(schedule.effectiveTo) ||
+      sessionDate < dateOnly(schedule.enrollment.startDate) ||
+      sessionDate > dateOnly(schedule.enrollment.expiryDate) ||
+      sessionDate.getUTCDay() !== schedule.dayOfWeek
+    ) {
+      throw new HttpError(400, 'Ngày không thuộc lịch cố định đã đăng ký.', 'SESSION_DATE_OUT_OF_RANGE');
+    }
+    const oldStartsAt = timeOnDate(sessionDate, {
+      hours: schedule.startTime.getUTCHours(),
+      minutes: schedule.startTime.getUTCMinutes(),
+    });
+    const oldEndsAt = timeOnDate(sessionDate, {
+      hours: schedule.endTime.getUTCHours(),
+      minutes: schedule.endTime.getUTCMinutes(),
+    });
+    const cutoff = oldStartsAt.getTime() - 24 * 60 * 60 * 1000;
+    if (Date.now() > cutoff) {
+      throw new HttpError(409, 'Chỉ được đổi hoặc hủy buổi học trước ít nhất 24 giờ.', 'PRIVATE_SESSION_CANCELLATION_CUTOFF');
+    }
+    if (schedule.exceptions.length > 0) {
+      throw new HttpError(409, 'Buổi học này đã được đổi hoặc hủy trước đó.', 'OCCURRENCE_ALREADY_CHANGED');
+    }
+    if (schedule.attendances.length > 0) {
+      throw new HttpError(409, 'Buổi học đã được ghi nhận hoàn thành.', 'OCCURRENCE_ALREADY_COMPLETED');
+    }
+
+    let rescheduledStartsAt: Date | null = null;
+    let rescheduledEndsAt: Date | null = null;
+    let newRoomId: number | null = null;
+    if (input.action === 'RESCHEDULED') {
+      if (!input.newStartsAt || !Number.isFinite(new Date(input.newStartsAt).getTime())) {
+        throw new HttpError(400, 'Thời gian mới không hợp lệ.', 'INVALID_SESSION_TIME');
+      }
+      if (input.newRoomId !== undefined && (!Number.isSafeInteger(input.newRoomId) || input.newRoomId <= 0)) {
+        throw new HttpError(400, 'ID phòng mới không hợp lệ.', 'INVALID_ROOM_ID');
+      }
+      rescheduledStartsAt = new Date(input.newStartsAt);
+      rescheduledEndsAt = new Date(rescheduledStartsAt.getTime() + (oldEndsAt.getTime() - oldStartsAt.getTime()));
+      newRoomId = input.newRoomId ?? schedule.roomId;
+      const newDate = dateOnly(rescheduledStartsAt);
+      if (
+        rescheduledStartsAt <= new Date() ||
+        newDate < dateOnly(schedule.enrollment.startDate) ||
+        newDate > dateOnly(schedule.enrollment.expiryDate)
+      ) {
+        throw new HttpError(409, 'Lịch mới phải nằm trong thời hạn còn hiệu lực của khóa học.', 'RESCHEDULE_OUTSIDE_ENROLLMENT');
+      }
+      const room = await prisma.room.findUnique({ where: { id: newRoomId } });
+      if (!room || room.status !== 'AVAILABLE') {
+        throw new HttpError(409, 'Phòng mới không tồn tại hoặc không khả dụng.', 'ROOM_UNAVAILABLE');
+      }
+      const availability = await prisma.coachAvailability.findMany({
+        where: {
+          coachId: schedule.enrollment.coachId,
+          dayOfWeek: rescheduledStartsAt.getUTCDay(),
+          status: 'AVAILABLE',
+          effectiveFrom: { lte: newDate },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: newDate } }],
+        },
+      });
+      const covered = availability.some((slot) => {
+        const availableStart = timeOnDate(newDate, {
+          hours: slot.startTime.getUTCHours(),
+          minutes: slot.startTime.getUTCMinutes(),
+        });
+        const availableEnd = timeOnDate(newDate, {
+          hours: slot.endTime.getUTCHours(),
+          minutes: slot.endTime.getUTCMinutes(),
+        });
+        return rescheduledStartsAt! >= availableStart && rescheduledEndsAt! <= availableEnd;
+      });
+      if (!covered) {
+        throw new HttpError(409, 'Coach không khả dụng vào thời gian mới.', 'COACH_UNAVAILABLE');
+      }
+
+      const [classSessions, otherSchedules] = await Promise.all([
+        prisma.classSession.findMany({
+          where: {
+            status: 'SCHEDULED',
+            startsAt: { lt: rescheduledEndsAt },
+            endsAt: { gt: rescheduledStartsAt },
+            OR: [
+              { groupClass: { coachId: schedule.enrollment.coachId } },
+              { groupClass: { registrations: { some: { memberId, status: 'CONFIRMED' } } } },
+              { roomId: newRoomId },
+            ],
+          },
+          include: {
+            groupClass: {
+              select: {
+                coachId: true,
+                registrations: { where: { memberId, status: 'CONFIRMED' }, select: { memberId: true } },
+              },
+            },
+          },
+        }),
+        prisma.privateCourseSchedule.findMany({
+          where: {
+            status: ScheduleStatus.ACTIVE,
+            enrollment: {
+              status: EnrollmentStatus.ACTIVE,
+            },
+            AND: [
+              {
+                OR: [
+                  { enrollment: { coachId: schedule.enrollment.coachId } },
+                  { enrollment: { memberId } },
+                  { roomId: newRoomId },
+                ],
+              },
+              {
+                OR: [
+                  {
+                    dayOfWeek: rescheduledStartsAt.getUTCDay(),
+                    effectiveFrom: { lte: newDate },
+                    effectiveTo: { gte: newDate },
+                  },
+                  {
+                    exceptions: {
+                      some: {
+                        action: 'RESCHEDULED',
+                        rescheduledStartsAt: { lt: rescheduledEndsAt },
+                        rescheduledEndsAt: { gt: rescheduledStartsAt },
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          include: {
+            enrollment: { select: { coachId: true, memberId: true } },
+            exceptions: {
+              where: {
+                OR: [
+                  { sessionDate: newDate },
+                  {
+                    action: 'RESCHEDULED',
+                    rescheduledStartsAt: { lt: rescheduledEndsAt },
+                    rescheduledEndsAt: { gt: rescheduledStartsAt },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      ]);
+      if (classSessions.length > 0) {
+        throw new HttpError(409, 'Lịch mới bị trùng với buổi lớp nhóm.', 'SCHEDULE_CONFLICT');
+      }
+      const scheduleConflict = otherSchedules.some((other) => {
+        const resourceConflict =
+          other.enrollment.coachId === schedule.enrollment.coachId ||
+          other.enrollment.memberId === memberId ||
+          other.roomId === newRoomId;
+        if (!resourceConflict) return false;
+
+        const originalException = other.exceptions.find(
+          (exception) => exception.sessionDate.getTime() === newDate.getTime(),
+        );
+        const occurrenceWasMoved =
+          other.id === scheduleId && newDate.getTime() === sessionDate.getTime();
+        const recurringConflict =
+          !occurrenceWasMoved &&
+          other.dayOfWeek === rescheduledStartsAt!.getUTCDay() &&
+          other.effectiveFrom <= newDate &&
+          other.effectiveTo >= newDate &&
+          originalException?.action !== 'CANCELLED' &&
+          (originalException?.action === 'RESCHEDULED'
+            ? !!originalException.rescheduledStartsAt &&
+              !!originalException.rescheduledEndsAt &&
+              overlaps(
+                rescheduledStartsAt!,
+                rescheduledEndsAt!,
+                originalException.rescheduledStartsAt,
+                originalException.rescheduledEndsAt,
+              )
+            : overlaps(
+              rescheduledStartsAt!,
+              rescheduledEndsAt!,
+              timeOnDate(newDate, { hours: other.startTime.getUTCHours(), minutes: other.startTime.getUTCMinutes() }),
+              timeOnDate(newDate, { hours: other.endTime.getUTCHours(), minutes: other.endTime.getUTCMinutes() }),
+            ));
+        const movedOccurrenceConflict = other.exceptions.some((exception) =>
+          exception.action === 'RESCHEDULED' &&
+          exception.rescheduledStartsAt !== null &&
+          exception.rescheduledEndsAt !== null &&
+          overlaps(
+            rescheduledStartsAt!,
+            rescheduledEndsAt!,
+            exception.rescheduledStartsAt,
+            exception.rescheduledEndsAt,
+          ),
+        );
+        return recurringConflict || movedOccurrenceConflict;
+      });
+      if (scheduleConflict) {
+        throw new HttpError(409, 'Lịch Coach, Member hoặc phòng bị chồng lấn.', 'SCHEDULE_CONFLICT');
+      }
+    }
+
+    const reason = input.reason.trim();
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.privateCourseScheduleException.findUnique({
+        where: { scheduleId_sessionDate: { scheduleId, sessionDate } },
+      });
+      if (existing) {
+        throw new HttpError(409, 'Buổi học này đã được đổi hoặc hủy trước đó.', 'OCCURRENCE_ALREADY_CHANGED');
+      }
+      const change = await tx.privateCourseScheduleException.create({
+        data: {
+          scheduleId,
+          sessionDate,
+          action: input.action,
+          rescheduledStartsAt,
+          rescheduledEndsAt,
+          newRoomId,
+          reason,
+        },
+      });
+      await audit(tx, {
+        actorId: memberId,
+        action: input.action === 'CANCELLED' ? 'PRIVATE_SESSION_CANCELLED' : 'PRIVATE_SESSION_RESCHEDULED',
+        entityType: 'PRIVATE_COURSE_SCHEDULE',
+        entityId: scheduleId,
+        oldData: { sessionDate, startsAt: oldStartsAt, endsAt: oldEndsAt, roomId: schedule.roomId },
+        newData: { action: input.action, startsAt: rescheduledStartsAt, endsAt: rescheduledEndsAt, roomId: newRoomId, reason },
+      });
+      await notify(tx, {
+        userIds: [schedule.enrollment.coachId],
+        type: NOTIFICATION_TYPES.SCHEDULE_CHANGE,
+        title: input.action === 'CANCELLED' ? 'Member đã hủy buổi học cá nhân' : 'Member đã đổi lịch học cá nhân',
+        content: input.action === 'CANCELLED'
+          ? `Member đã hủy buổi học ngày ${sessionDateInput}. Lý do: ${reason}`
+          : `Buổi học ngày ${sessionDateInput} được chuyển sang ${rescheduledStartsAt!.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}. Lý do: ${reason}`,
+      });
+      return change;
+    });
+  }
+
   async getEnrollment(id: number, userId: number, role: string) {
     const enrollment = await prisma.privateCourseEnrollment.findUnique({
       where: { id },
@@ -704,6 +1016,19 @@ export class PrivateCourseService {
       hours: schedule.endTime.getUTCHours(),
       minutes: schedule.endTime.getUTCMinutes(),
     });
+    const exception = await prisma.privateCourseScheduleException.findUnique({
+      where: { scheduleId_sessionDate: { scheduleId, sessionDate } },
+    });
+    if (exception?.action === 'CANCELLED') {
+      throw new HttpError(409, 'Buổi học đã bị hủy và không thể ghi nhận attendance.', 'OCCURRENCE_CANCELLED');
+    }
+    if (exception?.action === 'RESCHEDULED') {
+      if (!exception.rescheduledStartsAt || !exception.rescheduledEndsAt) {
+        throw new HttpError(409, 'Thông tin lịch đổi không hợp lệ.', 'INVALID_OCCURRENCE_CHANGE');
+      }
+      startsAt.setTime(exception.rescheduledStartsAt.getTime());
+      endsAt.setTime(exception.rescheduledEndsAt.getTime());
+    }
     if (endsAt > new Date()) {
       throw new HttpError(409, 'Chỉ có thể ghi nhận buổi học sau khi buổi học kết thúc.', 'SESSION_NOT_COMPLETED');
     }

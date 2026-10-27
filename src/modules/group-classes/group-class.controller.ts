@@ -23,6 +23,19 @@ export class GroupClassController {
     }
   }
 
+  async updateGroupClass(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const updated = await groupClassService.updateGroupClass(
+        Number(req.params.id),
+        req.body,
+        getAuthUser(req).id,
+      );
+      res.status(200).json({ success: true, data: updated });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+
   async updateStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = Number(req.params.id);
@@ -43,7 +56,7 @@ export class GroupClassController {
     try {
       const id = Number(req.params.id);
       const { coachId } = req.body;
-      const updated = await groupClassService.assignCoach(id, Number(coachId));
+      const updated = await groupClassService.assignCoach(id, Number(coachId), getAuthUser(req).id);
       res.status(200).json({ success: true, message: 'Phân công Huấn luyện viên thành công', data: updated });
     } catch (error: unknown) {
       next(error);
