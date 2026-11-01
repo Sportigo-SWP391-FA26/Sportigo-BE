@@ -30,6 +30,7 @@ const staffSchema = {
     email: { type: 'string', format: 'email' },
     phone: { type: 'string', nullable: true },
     displayName: { type: 'string' },
+    avatarUrl: { type: 'string', format: 'uri', nullable: true },
     role: { type: 'string', enum: ['COACH', 'RECEPTIONIST'] },
     status: { type: 'string', enum: statusEnum },
     emailVerified: { type: 'boolean' },
@@ -100,6 +101,23 @@ export const userAdminPaths = {
       responses: { '200': { description: 'Danh sách phân trang' }, '400': { description: 'VALIDATION_ERROR' }, ...common },
     },
   },
+  '/coaches/me/sessions': {
+    get: {
+      tags: ['Coaches'],
+      summary: 'Lịch dạy tổng hợp của Coach',
+      description: 'Chỉ Coach. Trả về các buổi lớp trong khoảng thời gian cùng môn, phòng, sĩ số xác nhận, số lượt đã điểm danh và trạng thái khóa điểm danh trong một request.',
+      security,
+      parameters: [
+        { name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date-time' } },
+        { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date-time' } },
+      ],
+      responses: {
+        '200': { description: 'Danh sách buổi dạy theo thời gian tăng dần' },
+        '400': { description: 'VALIDATION_ERROR hoặc khoảng thời gian không hợp lệ' },
+        ...common,
+      },
+    },
+  },
   '/members/{id}': {
     get: {
       tags: ['User Management'],
@@ -146,7 +164,7 @@ export const userAdminPaths = {
       tags: ['User Management'],
       summary: 'Tạo tài khoản Coach/Receptionist (FR-07)',
       description:
-        'Chỉ Center Manager. Tài khoản tạo ở trạng thái INACTIVE và gửi OTP xác minh tới email; nhân sự nhập OTP rồi đăng nhập bằng mật khẩu ban đầu. Ghi Audit Log STAFF_CREATED.',
+        'Chỉ Center Manager. Hệ thống tự cấp mã COA-xxxxxx cho Coach hoặc REC-xxxxxx cho Receptionist. Tài khoản tạo ở trạng thái INACTIVE và gửi OTP xác minh tới email. Ghi Audit Log STAFF_CREATED.',
       security,
       requestBody: {
         required: true,
@@ -155,14 +173,14 @@ export const userAdminPaths = {
             schema: {
               type: 'object',
               additionalProperties: false,
-              required: ['role', 'staffCode', 'displayName', 'email', 'phone', 'password'],
+              required: ['role', 'displayName', 'email', 'phone', 'password'],
               properties: {
                 role: { type: 'string', enum: ['COACH', 'RECEPTIONIST'] },
-                staffCode: staffCodeProp,
                 displayName: { type: 'string', minLength: 2, maxLength: 80 },
                 email: { type: 'string', format: 'email' },
                 phone: { type: 'string', pattern: '^(0|\\+84)[0-9]{9,10}$' },
                 password: { type: 'string', minLength: 8, maxLength: 72 },
+                avatarUrl: { type: 'string', format: 'uri', nullable: true, description: 'Ảnh đại diện đã upload lên Cloudinary' },
                 hiredAt: { type: 'string', format: 'date' },
                 bio: { type: 'string', maxLength: 1000, description: 'Chỉ Coach' },
               },
@@ -204,6 +222,7 @@ export const userAdminPaths = {
                 hiredAt: { type: 'string', format: 'date', nullable: true },
                 bio: { type: 'string', maxLength: 1000, nullable: true, description: 'Chỉ Coach' },
                 coachStatus: { type: 'string', enum: ['ACTIVE', 'INACTIVE', 'ON_LEAVE'], description: 'Chỉ Coach' },
+                avatarUrl: { type: 'string', format: 'uri', nullable: true, description: 'Ảnh đại diện đã upload lên Cloudinary' },
               },
             },
           },
@@ -256,9 +275,9 @@ export const userAdminPaths = {
   '/users/{id}/status': {
     patch: {
       tags: ['User Management'],
-      summary: 'Khóa hoặc mở khóa tài khoản (FR-06)',
+      summary: 'Khóa, mở khóa hoặc kích hoạt tài khoản (FR-06)',
       description:
-        'Chỉ Center Manager. Khóa: thu hồi mọi refresh token, chặn đăng nhập mới. Mở khóa: về ACTIVE (hoặc INACTIVE nếu email chưa xác minh). Ghi Audit Log USER_LOCKED/USER_UNLOCKED và gửi thông báo ACCOUNT_STATUS.',
+        'Chỉ Center Manager. Khóa: thu hồi mọi refresh token. Mở khóa: về ACTIVE (hoặc INACTIVE nếu email chưa xác minh). Với tài khoản INACTIVE, status ACTIVE xác nhận email và kích hoạt thủ công. Ghi Audit Log và gửi thông báo ACCOUNT_STATUS.',
       security,
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
       requestBody: {
@@ -283,6 +302,23 @@ export const userAdminPaths = {
         ...common,
         '404': { description: 'USER_NOT_FOUND' },
         '409': { description: 'STATUS_UNCHANGED hoặc STATUS_CONFLICT' },
+      },
+    },
+  },
+  '/users/{id}': {
+    delete: {
+      tags: ['User Management'],
+      summary: 'Xóa tài khoản chưa kích hoạt',
+      description:
+        'Chỉ Center Manager. Áp dụng cho mọi trạng thái của Member, Coach và Receptionist. Hệ thống xóa mềm, ẩn danh thông tin đăng nhập và thu hồi phiên nhưng giữ lịch sử nghiệp vụ. Không cho tự xóa hoặc xóa bất kỳ Center Manager nào.',
+      security,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+      responses: {
+        '204': { description: 'Đã xóa tài khoản' },
+        '400': { description: 'CANNOT_DELETE_OWN_ACCOUNT' },
+        ...common,
+        '404': { description: 'USER_NOT_FOUND' },
+        '403': { description: 'Không đủ quyền hoặc CANNOT_DELETE_MANAGER' },
       },
     },
   },

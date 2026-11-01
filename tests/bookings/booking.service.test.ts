@@ -100,11 +100,35 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     })
     expect(prisma.groupClass.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { status: 'OPEN', sportId: 2, coachId: 3 },
+        where: expect.objectContaining({
+          status: 'OPEN',
+          sportId: 2,
+          coachId: 3,
+          registrationOpenAt: { lte: expect.any(Date) },
+          registrationCloseAt: { gt: expect.any(Date) },
+          startDate: { gt: expect.any(Date) },
+        }),
         skip: 5,
         take: 5,
       }),
     )
+  })
+
+  it('rejects registration after the class has started', async () => {
+    prisma.groupClass.findUnique.mockResolvedValue({
+      id: 1,
+      status: 'OPEN',
+      registrationOpenAt: new Date(Date.now() - 180_000),
+      registrationCloseAt: new Date(Date.now() + 60_000),
+      startDate: new Date(Date.now() - 60_000),
+      capacity: 10,
+      _count: { registrations: 0 },
+    })
+
+    await expect(service.registerClass(2, 1)).rejects.toMatchObject({
+      code: 'CLASS_ALREADY_STARTED',
+    })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
   it('calculates confirmed count and remaining seats in class detail', async () => {

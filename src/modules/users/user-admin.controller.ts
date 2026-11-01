@@ -16,3 +16,9 @@ export const changeUserStatus: RequestHandler = async (request, response) => {
   // note: lưu IP vào audit log theo yêu cầu FR-59
   response.json(await userAdminService.changeStatus(getAuthUser(request), id, input, request.ip))
 }
+
+export const deleteUserAccount: RequestHandler = async (request, response) => {
+  const { id } = userIdSchema.parse(request.params)
+  await userAdminService.deleteAccount(getAuthUser(request), id, request.ip)
+  response.status(204).send()
+}

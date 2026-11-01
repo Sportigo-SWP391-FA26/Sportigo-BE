@@ -3,6 +3,8 @@ import type { AuthUser } from '../../middleware/auth.js'
 import { searchCoachMembers, type CoachMemberRow } from './coach-members.repository.js'
 import type { ListCoachMembersQuery } from './coach-members.schema.js'
 import { assignedEnrollment, assignedRegistration } from './member-profile.repository.js'
+import { KeyedReadCache } from '../../lib/read-cache.js'
+import { prisma } from '../../lib/prisma.js'
 
 const toDateOnly = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null)
 
@@ -47,8 +49,18 @@ function toCoachMember(row: CoachMemberRow) {
   }
 }
 
+type CoachMemberList = {
+  items: ReturnType<typeof toCoachMember>[]
+  page: number
+  pageSize: number
+  total: number
+}
+const coachMemberCache = new KeyedReadCache<CoachMemberList>(15_000)
+
 // FR-11
 export async function listMyMembers(actor: AuthUser, query: ListCoachMembersQuery) {
+  const cacheKey = JSON.stringify([actor.id, query])
+  return coachMemberCache.get(cacheKey, async () => {
   const coachId = actor.id
   const byClass: Prisma.MemberWhereInput = { registrations: { some: assignedRegistration(coachId) } }
   const byPrivate: Prisma.MemberWhereInput = { privateEnrollments: { some: assignedEnrollment(coachId) } }
@@ -70,4 +82,40 @@ export async function listMyMembers(actor: AuthUser, query: ListCoachMembersQuer
   }
   const [rows, total] = await searchCoachMembers(coachId, where, (query.page - 1) * query.pageSize, query.pageSize)
   return { items: rows.map(toCoachMember), page: query.page, pageSize: query.pageSize, total }
+  })
+}
+
+export async function listMySessions(actor: AuthUser, range: { from: Date; to: Date }) {
+  const sessions = await prisma.classSession.findMany({
+    where: {
+      groupClass: { coachId: actor.id, status: { notIn: ['DRAFT', 'CANCELLED'] } },
+      startsAt: { gte: range.from, lte: range.to },
+    },
+    orderBy: { startsAt: 'asc' },
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      status: true,
+      room: { select: { code: true, name: true } },
+      _count: { select: { attendances: true } },
+      groupClass: {
+        select: {
+          id: true,
+          name: true,
+          sport: { select: { id: true, name: true } },
+          _count: { select: { registrations: { where: { status: 'CONFIRMED' } } } },
+        },
+      },
+    },
+  })
+
+  const now = new Date()
+  return sessions.map(({ groupClass, _count, ...session }) => ({
+    ...session,
+    class: { id: groupClass.id, name: groupClass.name, sport: groupClass.sport },
+    confirmedCount: groupClass._count.registrations,
+    markedCount: _count.attendances,
+    isLocked: now < session.startsAt || session.status === 'CANCELLED',
+  }))
 }

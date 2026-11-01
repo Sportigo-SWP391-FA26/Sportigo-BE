@@ -1,8 +1,7 @@
-import { PrismaClient, AvailabilityStatus } from '@prisma/client';
+import { AvailabilityStatus } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 type ScheduleExceptionWithRoom = {
   sessionDate: Date;

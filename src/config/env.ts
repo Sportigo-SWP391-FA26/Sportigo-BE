@@ -1,6 +1,13 @@
 import 'dotenv/config'
 import { z } from 'zod'
 
+// Một số file .env cũ đặt dấu nháy kết thúc ngay trước các tham số
+// Supabase pooler (`...sslmode=require"&pgbouncer=true`). Chuẩn hóa lại trong
+// bộ nhớ để Prisma nhận đúng toàn bộ query string mà không chạm vào bí mật.
+if (process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/"(?=&)/g, '')
+}
+
 const schema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -24,6 +31,7 @@ const schema = z.object({
   GMAIL_WEBHOOK_URL: z.string().url().optional(),
   GMAIL_WEBHOOK_SECRET: z.string().min(32).optional(),
   EMAIL_FROM: z.string().min(1).optional(),
+  CLOUDINARY_URL: z.string().startsWith('cloudinary://').optional(),
   VNPAY_TMN_CODE: z.string().min(1).optional(),
   VNPAY_HASH_SECRET: z.string().min(1).optional(),
   VNPAY_PAYMENT_URL: z.string().url().default('https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'),

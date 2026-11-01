@@ -176,6 +176,19 @@ export async function payWithWallet(orderId: number, amount: number, memberId: n
   })
 }
 
+// Tương thích client cũ: thanh toán toàn bộ số tiền còn lại bằng ví.
+// Luồng ghi vẫn đi qua payWithWallet nên giữ nguyên optimistic lock,
+// ledger, invoice và idempotency của implementation hiện tại.
+export async function payRemainingWithWallet(orderId: number, memberId: number) {
+  const order = await requireOrder(orderId, { id: memberId, role: 'MEMBER' })
+  assertPayable(order)
+  const due = remaining(order)
+  if (due.lessThanOrEqualTo(0)) {
+    throw new HttpError(409, 'Đơn hàng đã được thanh toán đủ', 'ORDER_ALREADY_PAID')
+  }
+  return payWithWallet(orderId, asNumber(due), memberId)
+}
+
 export async function getWallet(memberId: number, page: number, limit: number) {
   const wallet = await prisma.wallet.upsert({ where: { memberId }, create: { memberId }, update: {} })
   const [transactions, total] = await Promise.all([prisma.walletTransaction.findMany({ where: { walletId: wallet.id }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), prisma.walletTransaction.count({ where: { walletId: wallet.id } })])
@@ -262,8 +275,13 @@ export async function classReport(query: { from?: Date; to?: Date; sportId?: num
 export async function listAuditLogs(query: { page: number; limit: number; actorId?: number; action?: string; entityType?: string; from?: Date; to?: Date }) {
   const { page, limit } = query
   const where: Prisma.AuditLogWhereInput = { actorId: query.actorId, action: query.action ? { contains: query.action, mode: 'insensitive' } : undefined, entityType: query.entityType ? { equals: query.entityType, mode: 'insensitive' } : undefined, createdAt: { gte: query.from, lte: query.to } }
-  const [items, total] = await Promise.all([prisma.auditLog.findMany({ where, include: { actor: { select: { id: true, displayName: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), prisma.auditLog.count({ where })])
-  return { items, page, limit, total }
+  const [items, total, actionRows, entityRows] = await Promise.all([
+    prisma.auditLog.findMany({ where, include: { actor: { select: { id: true, displayName: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({ distinct: ['action'], select: { action: true }, orderBy: { action: 'asc' } }),
+    prisma.auditLog.findMany({ distinct: ['entityType'], select: { entityType: true }, orderBy: { entityType: 'asc' } }),
+  ])
+  return { items, page, limit, total, facets: { actions: actionRows.map((row) => row.action), entityTypes: entityRows.map((row) => row.entityType) } }
 }
 
 export async function getInvoice(id: number, user: { id: number; role: string }) {

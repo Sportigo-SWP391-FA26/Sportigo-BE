@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { HttpError } from '../../lib/http-error.js'
+import { KeyedReadCache } from '../../lib/read-cache.js'
 import { sendEmailChangeCode } from './email-change.mail.js'
 // TEMP(FR-62): createSession được export tạm từ auth.service.ts, xem comment tại đó
 import { createSession } from '../auth/auth.service.js'
@@ -36,6 +37,7 @@ const invalidEmailCode = () => new HttpError(400, 'Mã OTP không đúng hoặc 
 
 // Cột @db.Date: trả "YYYY-MM-DD" thay vì timestamp nửa đêm UTC
 const toDateOnly = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null)
+const profileReadCache = new KeyedReadCache<ProfileRow>(15_000)
 
 function phoneTaken() {
   return new HttpError(409, 'Số điện thoại đã được sử dụng', 'ACCOUNT_EXISTS', { field: 'phone' })
@@ -48,6 +50,7 @@ function toProfile(user: ProfileRow) {
     email: user.email,
     phone: user.phone,
     displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
     role: user.role.name,
     status: user.status,
     emailVerifiedAt: user.emailVerifiedAt,
@@ -95,6 +98,7 @@ function splitChanges(input: UpdateProfileInput): ProfileChanges {
   // note: chép từng trường đã biết sang đúng bảng, không spread body (tránh mass assignment)
   const changes: ProfileChanges = { user: {}, member: {}, coach: {} }
   if (input.displayName !== undefined) changes.user.displayName = input.displayName
+  if (input.avatarUrl !== undefined) changes.user.avatarUrl = input.avatarUrl
   if (input.phone !== undefined) changes.user.phone = input.phone
   if (input.dateOfBirth !== undefined) {
     changes.member.dateOfBirth = input.dateOfBirth ? new Date(`${input.dateOfBirth}T00:00:00.000Z`) : null
@@ -107,7 +111,7 @@ function splitChanges(input: UpdateProfileInput): ProfileChanges {
 }
 
 export async function getMe(userId: number) {
-  return toProfile(await requireActiveUser(userId))
+  return toProfile(await profileReadCache.get(String(userId), () => requireActiveUser(userId)))
 }
 
 export async function updateMe(userId: number, input: UpdateProfileInput) {
@@ -120,7 +124,9 @@ export async function updateMe(userId: number, input: UpdateProfileInput) {
   }
 
   try {
-    return toProfile(await updateProfile(userId, splitChanges(input)))
+    const updated = await updateProfile(userId, splitChanges(input))
+    profileReadCache.invalidate()
+    return toProfile(updated)
   } catch (error) {
     // note: bước kiểm tra trước vẫn có thể bị request khác chen giữa; unique constraint của DB là chốt chặn cuối
     if (isUniqueViolation(error)) throw phoneTaken()
@@ -143,6 +149,7 @@ export async function changePassword(userId: number, input: ChangePasswordInput)
 
   // note: cost 12 giống register/reset-password của module auth
   await savePassword(userId, await bcrypt.hash(input.newPassword, 12))
+  profileReadCache.invalidate()
 
   const message = 'Đổi mật khẩu thành công. Các phiên đăng nhập khác đã bị đăng xuất.'
   // note: mọi refresh token (kể cả của phiên này) vừa bị thu hồi → cấp phiên mới để người đang đổi không bị đăng xuất
@@ -194,6 +201,7 @@ export async function confirmEmailChange(userId: number, code: string) {
     const updated = await applyEmailChange({ requestId: pending.id, userId, oldEmail: user.email, newEmail: pending.newEmail })
     // note: null = mã vừa bị dùng/hết hạn bởi request khác chen giữa
     if (!updated) throw invalidEmailCode()
+    profileReadCache.invalidate()
     return toProfile(updated)
   } catch (error) {
     // note: unique của cột email là chốt chặn cuối khi 2 người cùng lấy một email

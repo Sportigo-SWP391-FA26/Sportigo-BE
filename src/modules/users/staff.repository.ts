@@ -9,6 +9,7 @@ export const staffSelect = {
   email: true,
   phone: true,
   displayName: true,
+  avatarUrl: true,
   status: true,
   emailVerifiedAt: true,
   createdAt: true,
@@ -20,7 +21,7 @@ export const staffSelect = {
 export type StaffRow = Prisma.UserGetPayload<{ select: typeof staffSelect }>
 
 export function searchStaff(where: Prisma.UserWhereInput, skip: number, take: number) {
-  return prisma.$transaction([
+  return Promise.all([
     prisma.user.findMany({ where, select: staffSelect, orderBy: [{ displayName: 'asc' }, { id: 'asc' }], skip, take }),
     prisma.user.count({ where }),
   ])
@@ -53,38 +54,44 @@ export async function isStaffCodeTaken(code: string, excludeUserId?: number) {
 
 export type NewStaff = {
   role: 'COACH' | 'RECEPTIONIST'
-  staffCode: string
   displayName: string
   email: string
   phone: string
   passwordHash: string
+  avatarUrl: string | null
   hiredAt: Date | null
   bio: string | null
 }
 
 export function createStaff(data: NewStaff, actorId: number, ipAddress?: string) {
   return prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({
+    const createdUser = await tx.user.create({
       data: {
         email: data.email,
         phone: data.phone,
         displayName: data.displayName,
         passwordHash: data.passwordHash,
+        avatarUrl: data.avatarUrl,
         // note: INACTIVE + chưa xác minh → nhân sự phải nhập OTP gửi về email trước khi đăng nhập (giống đăng ký Member)
         status: 'INACTIVE',
         role: { connect: { name: data.role } },
-        ...(data.role === 'COACH'
-          ? { coach: { create: { coachCode: data.staffCode, hiredAt: data.hiredAt, bio: data.bio } } }
-          : { receptionist: { create: { staffCode: data.staffCode, hiredAt: data.hiredAt } } }),
       },
-      select: staffSelect,
+      select: { id: true },
     })
+    // Mã dựa trên userId nên duy nhất, ổn định và không cần Manager nhập hoặc xử lý tranh chấp đồng thời.
+    const staffCode = `${data.role === 'COACH' ? 'COA' : 'REC'}-${String(createdUser.id).padStart(6, '0')}`
+    if (data.role === 'COACH') {
+      await tx.coach.create({ data: { userId: createdUser.id, coachCode: staffCode, hiredAt: data.hiredAt, bio: data.bio } })
+    } else {
+      await tx.receptionist.create({ data: { userId: createdUser.id, staffCode, hiredAt: data.hiredAt } })
+    }
+    const user = await tx.user.findUniqueOrThrow({ where: { id: createdUser.id }, select: staffSelect })
     await audit(tx, {
       actorId,
       action: 'STAFF_CREATED',
       entityType: 'User',
       entityId: user.id,
-      newData: { role: data.role, staffCode: data.staffCode, email: data.email },
+      newData: { role: data.role, staffCode, email: data.email },
       ipAddress,
     })
     return user

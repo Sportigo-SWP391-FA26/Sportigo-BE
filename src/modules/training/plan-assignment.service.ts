@@ -9,6 +9,7 @@ import {
   notFound,
   toCoachRef,
 } from './training.common.js'
+import { invalidateMemberTrainingCache } from './member-training-cache.js'
 
 type AssignmentRow = Awaited<
   ReturnType<typeof assignmentRepository.createAssignment>
@@ -71,6 +72,7 @@ export async function assignPlan(
           workoutPlanId,
           assignedById: user.id,
         })
+    invalidateMemberTrainingCache()
     return toAssignment(assignment)
   } catch (error) {
     if (isUniqueViolation(error)) throw alreadyAssigned()

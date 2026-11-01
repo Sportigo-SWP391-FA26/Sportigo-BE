@@ -1,11 +1,12 @@
-import { PrismaClient } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
+import { prisma } from '../../lib/prisma.js';
+import { ReadCache } from '../../lib/read-cache.js';
 
-const prisma = new PrismaClient();
+const sportsCache = new ReadCache(() => prisma.sport.findMany({ orderBy: { createdAt: 'desc' } }), 60_000);
 
 export class SportService {
   async getAllSports() {
-    return await prisma.sport.findMany({ orderBy: { createdAt: 'desc' } });
+    return sportsCache.get();
   }
 
   async createSport(data: { name: string; description?: string; imageUrl?: string; isActive?: boolean }) {
@@ -14,7 +15,7 @@ export class SportService {
       throw new HttpError(409, 'Tên môn thể thao đã tồn tại trong hệ thống.', 'SPORT_NAME_CONFLICT');
     }
 
-    return await prisma.sport.create({
+    const created = await prisma.sport.create({
       data: {
         name: data.name,
         description: data.description,
@@ -22,6 +23,8 @@ export class SportService {
         isActive: data.isActive ?? true,
       },
     });
+    sportsCache.invalidate();
+    return created;
   }
 
   async updateSport(id: number, data: { name?: string; description?: string; imageUrl?: string; isActive?: boolean }) {
@@ -31,7 +34,9 @@ export class SportService {
         throw new HttpError(409, 'Tên môn thể thao bị trùng với môn khác.', 'SPORT_NAME_CONFLICT');
       }
     }
-    return await prisma.sport.update({ where: { id }, data });
+    const updated = await prisma.sport.update({ where: { id }, data });
+    sportsCache.invalidate();
+    return updated;
   }
 
   async deleteSport(id: number) {
@@ -41,7 +46,9 @@ export class SportService {
     if (classCount > 0 || courseCount > 0) {
       throw new HttpError(409, 'Không thể xóa môn thể thao này vì đang được sử dụng trong lớp nhóm hoặc khóa học 1-1.', 'SPORT_IN_USE');
     }
-    return await prisma.sport.delete({ where: { id } });
+    const deleted = await prisma.sport.delete({ where: { id } });
+    sportsCache.invalidate();
+    return deleted;
   }
 }
 

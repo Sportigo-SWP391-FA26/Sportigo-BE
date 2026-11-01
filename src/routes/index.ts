@@ -7,7 +7,7 @@ import { financeRouter } from '../modules/finance/finance.routes.js'
 import { usersRouter } from '../modules/users/users.routes.js'
 import { staffRouter } from '../modules/users/staff.routes.js'
 import { membersRouter } from '../modules/users/members.routes.js'
-import { coachMembersRouter } from '../modules/users/coach-members.routes.js'
+import { coachMembersRouter, coachSessionsRouter } from '../modules/users/coach-members.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
 import { supportRouter } from '../modules/support/support.routes.js'
 
@@ -21,23 +21,30 @@ import waitlistRoutes from '../modules/waitlist/waitlist.routes.js'
 import privateRoutes from '../modules/private-courses/private.routes.js'
 import attendanceRoutes from '../modules/attendance/attendance.routes.js'
 import reportRoutes from '../modules/reports/report.routes.js'
+import { homeDataRouter, landingContentRouter, publicContentRouter } from '../modules/content/content.routes.js'
+import { uploadRouter } from '../modules/uploads/upload.routes.js'
 
 export const apiRouter = Router()
 
 // Authentication
 apiRouter.use('/auth', authRouter)
+apiRouter.use('/public', publicContentRouter)
+apiRouter.use('/landing-content', landingContentRouter)
+apiRouter.use(homeDataRouter)
 
 // Profile (FR-05, FR-62)
 apiRouter.use('/users', usersRouter)
 
 // Staff management (FR-07)
 apiRouter.use('/staff', staffRouter)
+apiRouter.use('/uploads', uploadRouter)
 
 // Member management (FR-08)
 apiRouter.use('/members', membersRouter)
 
 // Coach's members (FR-11); phải đứng trước '/coaches' để "me" không bị coi là id coach
 apiRouter.use('/coaches/me/members', coachMembersRouter)
+apiRouter.use('/coaches/me/sessions', coachSessionsRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)

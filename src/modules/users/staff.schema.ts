@@ -34,12 +34,12 @@ export type ListStaffQuery = z.infer<typeof listStaffSchema>
 export const createStaffSchema = z
   .object({
     role: z.enum(STAFF_ROLES),
-    staffCode: staffCodeSchema,
     displayName: z.string().trim().min(2).max(80),
     email: z.string().trim().toLowerCase().email(),
     phone: phoneSchema,
     // note: mật khẩu ban đầu do Manager đặt, nhân sự tự đổi lại bằng FR-62 sau khi xác minh email
     password: z.string().min(8, 'Mật khẩu phải có ít nhất 8 ký tự').max(72),
+    avatarUrl: z.string().url().nullable().optional(),
     hiredAt: hiredAtSchema.optional(),
     bio: z.string().trim().max(1000).optional(),
   })
@@ -55,6 +55,7 @@ export const updateStaffSchema = z
     hiredAt: hiredAtSchema.nullable(),
     bio: z.string().trim().max(1000).nullable(),
     coachStatus: z.enum(COACH_STATUSES),
+    avatarUrl: z.string().url().nullable(),
   })
   .partial()
   // note: strict → gửi role/email/status/password bị từ chối 400; đổi role tùy tiện là điều backlog cấm

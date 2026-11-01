@@ -14,6 +14,7 @@ import {
   toPage,
   toSkipTake,
 } from './training.common.js'
+import { invalidateMemberTrainingCache } from './member-training-cache.js'
 
 // Khóa 1-1 đã kích hoạt (đang học hoặc đã học xong) mới được đánh giá
 const ASSESSABLE_ENROLLMENT: EnrollmentStatus[] = ['ACTIVE', 'COMPLETED']
@@ -105,6 +106,7 @@ export async function createAssessment(
       ? new Date(input.nextAssessmentDate)
       : undefined,
   })
+  invalidateMemberTrainingCache()
   return toAssessment(assessment)
 }
 

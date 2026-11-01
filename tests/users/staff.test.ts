@@ -15,8 +15,8 @@ const { prisma, sendVerificationEmail } = vi.hoisted(() => {
       update: vi.fn(),
       findUniqueOrThrow: vi.fn(),
     },
-    coach: { count: vi.fn(), update: vi.fn() },
-    receptionist: { count: vi.fn(), upsert: vi.fn() },
+    coach: { count: vi.fn(), create: vi.fn(), update: vi.fn() },
+    receptionist: { count: vi.fn(), create: vi.fn(), upsert: vi.fn() },
     auditLog: { create: vi.fn() },
     emailVerificationToken: { deleteMany: vi.fn(), create: vi.fn() },
   }
@@ -56,7 +56,6 @@ const receptionistRow = (overrides: Record<string, unknown> = {}) =>
 
 const newCoach = {
   role: 'COACH',
-  staffCode: 'coa-07',
   displayName: 'Lê Lan',
   email: 'Coach@Sportigo.vn',
   phone: '0901234567',
@@ -92,42 +91,38 @@ describe('FR-07 Quản lý nhân sự', () => {
     expect(where.OR).toContainEqual({ receptionist: { staffCode: { contains: 'lan', mode: 'insensitive' } } })
   })
 
-  it('tạo Coach: mã viết hoa, INACTIVE, ghi audit, gửi OTP xác minh', async () => {
-    prisma.user.create.mockResolvedValue(coachRow())
+  it('tạo Coach: hệ thống tự cấp mã, INACTIVE, ghi audit, gửi OTP xác minh', async () => {
+    prisma.user.create.mockResolvedValue({ id: 7 })
+    prisma.user.findUniqueOrThrow.mockResolvedValue(coachRow({ coach: { coachCode: 'COA-000007', bio: null, status: 'ACTIVE', hiredAt: new Date('2026-10-01') } }))
     prisma.user.findUnique.mockResolvedValue({ id: 7, email: 'coach@sportigo.vn', displayName: 'Lê Lan', emailVerifiedAt: null })
 
     const response = await request(app).post('/staff').set('Authorization', auth()).send(newCoach)
 
     expect(response.status).toBe(201)
-    expect(response.body).toMatchObject({ staffCode: 'COA-07', role: 'COACH', emailSent: true })
+    expect(response.body).toMatchObject({ staffCode: 'COA-000007', role: 'COACH', emailSent: true })
     expect(response.body.passwordHash).toBeUndefined()
     const data = prisma.user.create.mock.calls[0][0].data
     expect(data).toMatchObject({ email: 'coach@sportigo.vn', status: 'INACTIVE', role: { connect: { name: 'COACH' } } })
-    expect(data.coach.create.coachCode).toBe('COA-07')
     expect(data.passwordHash).not.toBe('matkhau123')
+    expect(prisma.coach.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: 7, coachCode: 'COA-000007' }),
+    })
     expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: 'STAFF_CREATED', entityId: '7' })
     expect(sendVerificationEmail).toHaveBeenCalledWith(expect.objectContaining({ email: 'coach@sportigo.vn' }))
   })
 
   it('tạo Receptionist lưu vào bảng Receptionist; gửi bio cho Receptionist thì 400', async () => {
-    prisma.user.create.mockResolvedValue(receptionistRow())
+    prisma.user.create.mockResolvedValue({ id: 8 })
+    prisma.user.findUniqueOrThrow.mockResolvedValue(receptionistRow({ receptionist: { staffCode: 'REC-000008', hiredAt: null } }))
     prisma.user.findUnique.mockResolvedValue(null)
-    const body = { ...newCoach, role: 'RECEPTIONIST', staffCode: 'REC-01', email: 'le@sportigo.vn' }
+    const body = { ...newCoach, role: 'RECEPTIONIST', email: 'le@sportigo.vn' }
 
     expect((await request(app).post('/staff').set('Authorization', auth()).send(body)).status).toBe(201)
-    expect(prisma.user.create.mock.calls[0][0].data.receptionist.create.staffCode).toBe('REC-01')
+    expect(prisma.receptionist.create).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: 8, staffCode: 'REC-000008' }) })
 
     const withBio = await request(app).post('/staff').set('Authorization', auth()).send({ ...body, bio: 'x' })
     expect(withBio.status).toBe(400)
     expect(withBio.body.code).toBe('FIELD_NOT_ALLOWED')
-  })
-
-  it('mã nhân sự trùng (kể cả khác bảng) thì 409 STAFF_CODE_EXISTS', async () => {
-    prisma.receptionist.count.mockResolvedValue(1)
-    const response = await request(app).post('/staff').set('Authorization', auth()).send(newCoach)
-    expect(response.status).toBe(409)
-    expect(response.body.code).toBe('STAFF_CODE_EXISTS')
-    expect(prisma.user.create).not.toHaveBeenCalled()
   })
 
   it('email trùng thì 409 ACCOUNT_EXISTS field email; không cho tạo Manager', async () => {

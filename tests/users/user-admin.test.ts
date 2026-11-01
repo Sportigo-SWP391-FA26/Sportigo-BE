@@ -59,14 +59,15 @@ describe('FR-09 Tìm và lọc người dùng', () => {
     const args = prisma.user.findMany.mock.calls[0][0]
     expect(args.skip).toBe(10)
     expect(args.take).toBe(10)
-    expect(args.where).toMatchObject({ role: { name: 'MEMBER' }, status: 'ACTIVE' })
+    expect(args.where.AND[0]).toEqual({ deletedAt: null })
+    expect(args.where.AND[1]).toMatchObject({ role: { name: 'MEMBER' }, status: 'ACTIVE' })
     // note: từ khóa được tìm trên tên, email, phone, mã hội viên, mã Coach và mã lễ tân
-    expect(args.where.OR).toHaveLength(6)
+    expect(args.where.AND[1].OR).toHaveLength(6)
   })
 
   it('Receptionist luôn bị giới hạn ở role MEMBER', async () => {
     await request(app).get('/users').set('Authorization', auth('RECEPTIONIST'))
-    expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({ role: { name: 'MEMBER' } })
+    expect(prisma.user.findMany.mock.calls[0][0].where.AND).toContainEqual({ role: { name: 'MEMBER' } })
   })
 
   it('Receptionist lọc role khác MEMBER thì 403', async () => {

@@ -13,6 +13,13 @@ export default function setup() {
   }
 
   assertSafeTestDatabase(url)
+  if (process.env.TEST_DATABASE_MIGRATIONS_ALREADY_APPLIED === 'true') {
+    console.warn(
+      '\n[test] Bỏ qua migrate deploy: schema test đã được migrate trước đó.\n',
+    )
+    return
+  }
+
   execSync('npx prisma migrate deploy', {
     stdio: 'pipe',
     env: { ...process.env, DATABASE_URL: url },

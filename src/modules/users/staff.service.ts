@@ -15,6 +15,15 @@ import {
   type StaffRow,
 } from './staff.repository.js'
 import { COACH_ONLY_FIELDS, STAFF_ROLES, type CreateStaffInput, type ListStaffQuery, type UpdateStaffInput } from './staff.schema.js'
+import { KeyedReadCache } from '../../lib/read-cache.js'
+import { invalidateUserListCache } from './user-admin.service.js'
+
+type StaffListResult = { items: ReturnType<typeof toStaff>[]; page: number; pageSize: number; total: number }
+const staffListCache = new KeyedReadCache<StaffListResult>(30_000)
+
+export function invalidateStaffListCache() {
+  staffListCache.invalidate()
+}
 
 const toDateOnly = (date: Date | null | undefined) => (date ? date.toISOString().slice(0, 10) : null)
 const toDate = (value: string) => new Date(`${value}T00:00:00.000Z`)
@@ -27,6 +36,7 @@ export function toStaff(user: StaffRow) {
     email: user.email,
     phone: user.phone,
     displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
     role: user.role.name,
     status: user.status,
     emailVerified: user.emailVerifiedAt !== null,
@@ -48,23 +58,26 @@ const duplicateCode = () => new HttpError(409, 'Mã nhân sự đã tồn tại'
 
 // FR-07
 export async function listStaff(query: ListStaffQuery) {
-  const contains = { contains: query.q ?? '', mode: 'insensitive' as const }
-  const where: Prisma.UserWhereInput = {
-    role: { name: query.role ? query.role : { in: [...STAFF_ROLES] } },
-    ...(query.q
-      ? {
-          OR: [
-            { displayName: contains },
-            { email: contains },
-            { phone: { contains: query.q } },
-            { coach: { coachCode: contains } },
-            { receptionist: { staffCode: contains } },
-          ],
-        }
-      : {}),
-  }
-  const [rows, total] = await searchStaff(where, (query.page - 1) * query.pageSize, query.pageSize)
-  return { items: rows.map(toStaff), page: query.page, pageSize: query.pageSize, total }
+  const key = JSON.stringify(query)
+  return staffListCache.get(key, async () => {
+    const contains = { contains: query.q ?? '', mode: 'insensitive' as const }
+    const where: Prisma.UserWhereInput = {
+      role: { name: query.role ? query.role : { in: [...STAFF_ROLES] } },
+      ...(query.q
+        ? {
+            OR: [
+              { displayName: contains },
+              { email: contains },
+              { phone: { contains: query.q } },
+              { coach: { coachCode: contains } },
+              { receptionist: { staffCode: contains } },
+            ],
+          }
+        : {}),
+    }
+    const [rows, total] = await searchStaff(where, (query.page - 1) * query.pageSize, query.pageSize)
+    return { items: rows.map(toStaff), page: query.page, pageSize: query.pageSize, total }
+  })
 }
 
 // FR-07
@@ -74,18 +87,16 @@ export async function createStaff(actor: AuthUser, input: CreateStaffInput, ipAd
   }
   const existing = await findUserByEmailOrPhone(input.email, input.phone)
   if (existing) throw duplicateAccount(existing, input.email)
-  if (await isStaffCodeTaken(input.staffCode)) throw duplicateCode()
-
   let created: StaffRow
   try {
     created = await insertStaff(
       {
         role: input.role,
-        staffCode: input.staffCode,
         displayName: input.displayName,
         email: input.email,
         phone: input.phone,
         passwordHash: await bcrypt.hash(input.password, 12),
+        avatarUrl: input.avatarUrl ?? null,
         hiredAt: input.hiredAt ? toDate(input.hiredAt) : null,
         bio: input.bio ?? null,
       },
@@ -106,6 +117,8 @@ export async function createStaff(actor: AuthUser, input: CreateStaffInput, ipAd
     console.error('Verification email could not be delivered after staff creation', error)
     emailSent = false
   }
+  invalidateStaffListCache()
+  invalidateUserListCache()
   return { ...toStaff(created), emailSent }
 }
 
@@ -138,6 +151,7 @@ export async function updateStaff(actor: AuthUser, userId: number, input: Update
   const changes: StaffChanges = { user: {}, coach: {}, receptionist: {} }
   if (input.displayName !== undefined) changes.user.displayName = input.displayName
   if (input.phone !== undefined) changes.user.phone = input.phone
+  if (input.avatarUrl !== undefined) changes.user.avatarUrl = input.avatarUrl
   const hiredAt = input.hiredAt === undefined ? undefined : input.hiredAt === null ? null : toDate(input.hiredAt)
   if (isCoach) {
     if (input.staffCode !== undefined) changes.coach.coachCode = input.staffCode
@@ -154,6 +168,8 @@ export async function updateStaff(actor: AuthUser, userId: number, input: Update
   const oldData = Object.fromEntries(sent.map((field) => [field, current[field]]))
   try {
     const updated = await saveStaff(userId, changes, { actorId: actor.id, oldData, newData: input, ipAddress })
+    invalidateStaffListCache()
+    invalidateUserListCache()
     return toStaff(updated)
   } catch (error) {
     if (isUniqueViolation(error)) throw new HttpError(409, 'Số điện thoại hoặc mã nhân sự đã tồn tại', 'ACCOUNT_EXISTS')

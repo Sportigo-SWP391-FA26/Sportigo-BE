@@ -7,7 +7,7 @@ const { prisma } = vi.hoisted(() => {
     // note: hỗ trợ cả 2 kiểu $transaction (mảng query và callback nhận tx)
     $transaction: vi.fn(async (arg: unknown): Promise<unknown> =>
       typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as Promise<unknown>[])),
-    user: { findUnique: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     refreshToken: { updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
     notification: { createMany: vi.fn(async () => ({ count: 1 })) },
@@ -137,5 +137,43 @@ describe('FR-06 Khóa/mở khóa tài khoản', () => {
   it('thiếu lý do hoặc status lạ thì 400', async () => {
     const response = await request(app).patch('/users/5/status').set('Authorization', auth('CENTER_MANAGER')).send({ status: 'INACTIVE' })
     expect(response.status).toBe(400)
+  })
+})
+
+describe('Center Manager xóa tài khoản', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma.user.update.mockResolvedValue({ id: 5 })
+  })
+
+  it('không cho tự xóa tài khoản', async () => {
+    const response = await request(app).delete('/users/1').set('Authorization', auth('CENTER_MANAGER', 1))
+    expect(response.status).toBe(400)
+    expect(response.body.code).toBe('CANNOT_DELETE_OWN_ACCOUNT')
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('không cho xóa bất kỳ Center Manager nào', async () => {
+    prisma.user.findUnique.mockResolvedValue(member({ id: 9, role: { name: 'CENTER_MANAGER' } }))
+    const response = await request(app).delete('/users/9').set('Authorization', auth('CENTER_MANAGER'))
+    expect(response.status).toBe(403)
+    expect(response.body.code).toBe('CANNOT_DELETE_MANAGER')
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('xóa mềm tài khoản đang hoạt động và thu hồi phiên', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce(member())
+    prisma.user.findUniqueOrThrow.mockResolvedValueOnce({ id: 5, email: 'mem@sportigo.vn', displayName: 'Trần Bình', status: 'ACTIVE' })
+
+    const response = await request(app).delete('/users/5').set('Authorization', auth('CENTER_MANAGER'))
+
+    expect(response.status).toBe(204)
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: expect.objectContaining({ displayName: 'Tài khoản đã xóa', phone: null, status: 'LOCKED', deletedAt: expect.any(Date) }),
+      select: { id: true },
+    })
+    expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 5, revokedAt: null } }))
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'USER_DELETED', entityId: '5' }) })
   })
 })

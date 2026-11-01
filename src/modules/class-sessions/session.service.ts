@@ -1,11 +1,10 @@
 
-import { PrismaClient, SessionStatus } from '@prisma/client'
+import { SessionStatus } from '@prisma/client'
 import coachService from '../coaches/coach.service.js'
 import { HttpError } from '../../lib/http-error.js'
+import { prisma } from '../../lib/prisma.js'
 import { audit } from '../../lib/audit.js'
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
-
-const prisma = new PrismaClient()
 
 function dateOnly(value: Date) {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))

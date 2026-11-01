@@ -3,15 +3,38 @@ import {
   OrderItemType,
   OrderStatus,
   Prisma,
-  PrismaClient,
   ScheduleStatus,
 } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
+import { prisma } from '../../lib/prisma.js';
 import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js';
 import { audit } from '../../lib/audit.js';
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
+import { KeyedReadCache } from '../../lib/read-cache.js';
 
-const prisma = new PrismaClient();
+type ActiveCourseList = Awaited<ReturnType<typeof loadActiveCourses>>;
+const activeCoursesCache = new KeyedReadCache<ActiveCourseList>(30_000);
+
+function loadActiveCourses(sportId?: number) {
+  return prisma.privateCourse.findMany({
+    where: { status: 'ACTIVE', sportId },
+    include: {
+      sport: true,
+      coaches: {
+        where: { isActive: true, coach: { status: 'ACTIVE' } },
+        include: {
+          coach: {
+            include: {
+              user: { select: { id: true, displayName: true } },
+              availabilities: { where: { status: 'AVAILABLE' } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
 
 type CourseInput = {
   sportId: number;
@@ -63,24 +86,7 @@ function parseDateOnly(value: string) {
 
 export class PrivateCourseService {
   async listActiveCourses(sportId?: number) {
-    return prisma.privateCourse.findMany({
-      where: { status: 'ACTIVE', sportId },
-      include: {
-        sport: true,
-        coaches: {
-          where: { isActive: true, coach: { status: 'ACTIVE' } },
-          include: {
-            coach: {
-              include: {
-                user: { select: { id: true, displayName: true } },
-                availabilities: { where: { status: 'AVAILABLE' } },
-              },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    return activeCoursesCache.get(String(sportId ?? 'all'), () => loadActiveCourses(sportId));
   }
 
   async getCourse(id: number) {
@@ -111,9 +117,11 @@ export class PrivateCourseService {
     if (!sport || !sport.isActive) {
       throw new HttpError(400, 'Môn thể thao không tồn tại hoặc đã ngừng hoạt động.', 'SPORT_INACTIVE');
     }
-    return prisma.privateCourse.create({
+    const created = await prisma.privateCourse.create({
       data: { ...data, name: data.name.trim(), status: 'DRAFT' },
     });
+    activeCoursesCache.invalidate();
+    return created;
   }
 
   async updateCourse(id: number, data: Partial<CourseInput> & { status?: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' }) {
@@ -158,7 +166,9 @@ export class PrivateCourseService {
     if (fields.name !== undefined) fields.name = fields.name.trim();
     const updateData: Prisma.PrivateCourseUpdateInput = { ...fields };
     if (sportId !== undefined) updateData.sport = { connect: { id: sportId } };
-    return prisma.privateCourse.update({ where: { id }, data: updateData });
+    const updated = await prisma.privateCourse.update({ where: { id }, data: updateData });
+    activeCoursesCache.invalidate();
+    return updated;
   }
 
   private validateCourseInput(data: CourseInput) {
@@ -191,11 +201,13 @@ export class PrivateCourseService {
     ) {
       throw new HttpError(400, 'Coach phải đang hoạt động và có chuyên môn phù hợp.', 'COACH_NOT_QUALIFIED');
     }
-    return prisma.coachPrivateCourse.upsert({
+    const assignment = await prisma.coachPrivateCourse.upsert({
       where: { coachId_privateCourseId: { coachId, privateCourseId: courseId } },
       create: { coachId, privateCourseId: courseId, customPrice, isActive: true },
       update: { customPrice, isActive: true },
     });
+    activeCoursesCache.invalidate();
+    return assignment;
   }
 
   async unassignCoach(courseId: number, coachId: number) {
@@ -206,6 +218,7 @@ export class PrivateCourseService {
     if (result.count === 0) {
       throw new HttpError(404, 'Không tìm thấy phân công Coach đang hoạt động.', 'COACH_ASSIGNMENT_NOT_FOUND');
     }
+    activeCoursesCache.invalidate();
   }
 
   async createEnrollment(data: {

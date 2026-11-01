@@ -18,6 +18,7 @@ export const vnpayReturn: RequestHandler = async (req, res) => { const query = n
 export const vnpayIpn: RequestHandler = async (req, res) => res.json(await finance.processVnpayIpn(normalizeVnpayQuery(req.query)))
 export const payCash: RequestHandler = async (req, res) => res.status(201).json(await finance.payCash(id(req.params.id), getAuthUser(req).id, cashPaymentSchema.parse(req.body).amount, ip(req.ip)))
 export const payWallet: RequestHandler = async (req, res) => res.status(201).json(await finance.payWithWallet(id(req.params.id), walletPaymentSchema.parse(req.body).amount, getAuthUser(req).id))
+export const payWalletLegacy: RequestHandler = async (req, res) => res.json(await finance.payRemainingWithWallet(id(req.params.id), getAuthUser(req).id))
 export const getWallet: RequestHandler = async (req, res) => { const q = paginationSchema.parse(req.query); res.json(await finance.getWallet(getAuthUser(req).id, q.page, q.limit)) }
 export const listPayments: RequestHandler = async (req, res) => { const q = paymentListSchema.parse(req.query); res.json(await finance.listPayments(getAuthUser(req), q)) }
 export const requestRefund: RequestHandler = async (req, res) => { const value = refundCreateSchema.parse(req.body); res.status(201).json(await finance.requestRefund(id(req.params.id), getAuthUser(req).id, value.requestedAmount, value.reason)) }

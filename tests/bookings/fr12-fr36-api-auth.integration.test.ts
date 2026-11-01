@@ -254,7 +254,11 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
     const { groupClass } = await createOpenBookingClass(1)
     const cancellingMember = await createMember()
     const bookingMember = await createMember()
-    const registration = await createRegistration({ memberId: cancellingMember.id, classId: groupClass.id })
+    const registration = await createRegistration({
+      memberId: cancellingMember.id,
+      classId: groupClass.id,
+      status: 'PENDING_PAYMENT',
+    })
 
     const [cancellation, newBooking] = await Promise.all([
       request(app)
@@ -267,7 +271,7 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
         .send(),
     ])
 
-    expect(cancellation.status).toBe(200)
+    expect(cancellation.status, JSON.stringify(cancellation.body)).toBe(200)
     expect([201, 409]).toContain(newBooking.status)
     expect(await prisma.classRegistration.count({
       where: { classId: groupClass.id, status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] } },
@@ -279,7 +283,11 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
     const cancelledMember = await createMember()
     const firstWaitingMember = await createMember()
     const secondWaitingMember = await createMember()
-    const registration = await createRegistration({ memberId: cancelledMember.id, classId: groupClass.id })
+    const registration = await createRegistration({
+      memberId: cancelledMember.id,
+      classId: groupClass.id,
+      status: 'PENDING_PAYMENT',
+    })
     for (const member of [firstWaitingMember, secondWaitingMember]) {
       const joined = await request(app)
         .post(`/api/group-classes/${groupClass.id}/waitlist`)

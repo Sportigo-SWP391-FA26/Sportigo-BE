@@ -1,7 +1,6 @@
-import { PrismaClient, AttendanceStatus, RegistrationStatus } from '@prisma/client';
+import { AttendanceStatus, RegistrationStatus } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 export class AttendanceService {
   /**

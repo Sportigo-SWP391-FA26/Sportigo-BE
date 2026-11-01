@@ -23,10 +23,12 @@ model User {
   phone                     String?                  @unique @db.VarChar(20)
   passwordHash              String
   displayName               String                   @db.VarChar(100)
+  avatarUrl                 String?
   status                    UserStatus               @default(ACTIVE)
   roleId                    Int
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
+  deletedAt                 DateTime?
   emailVerifiedAt           DateTime?
   auditLogs                 AuditLog[]
   coach                     Coach?
@@ -49,6 +51,7 @@ model User {
   walletTransactionsCreated WalletTransaction[]      @relation("WalletTransactionCreator")
 
   @@index([roleId, status])
+  @@index([deletedAt])
 }
 
 model EmailVerificationToken {
@@ -197,6 +200,67 @@ model Sport {
   privateCourses PrivateCourse[]
   workoutPlans   WorkoutPlan[]
   coachSports    CoachSport[] // Quan hệ ngược về CoachSport
+  landingHeroSlides LandingHeroSlide[]
+}
+
+model LandingHeroSlide {
+  id          Int      @id @default(autoincrement())
+  title       String   @db.VarChar(160)
+  subtitle    String?
+  imageUrl    String
+  sportId     Int?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sport       Sport?   @relation(fields: [sportId], references: [id], onDelete: SetNull)
+
+  @@index([isActive, sortOrder])
+}
+
+model LandingFacility {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(160)
+  description String?
+  imageUrl    String
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model LandingPartner {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(120)
+  logoUrl   String
+  websiteUrl String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model SiteSetting {
+  id                       Int      @id @default(1)
+  hotline                  String   @db.VarChar(40)
+  openingHours             String   @db.VarChar(120)
+  location                 String   @db.VarChar(160)
+  brandDescription         String
+  authPromotionTitle       String?  @db.VarChar(200)
+  authPromotionDescription String?
+  updatedAt                DateTime @updatedAt
+}
+
+model NewsletterSubscriber {
+  id           Int              @id @default(autoincrement())
+  email        String           @unique @db.VarChar(255)
+  status       NewsletterStatus @default(SUBSCRIBED)
+  subscribedAt DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 }
 
 model GroupClass {
@@ -958,4 +1022,9 @@ enum PlanAssignmentStatus {
   ACTIVE
   COMPLETED
   CANCELLED
+}
+
+enum NewsletterStatus {
+  SUBSCRIBED
+  UNSUBSCRIBED
 }

@@ -18,6 +18,7 @@ export const dateOnlySchema = z
 export const updateProfileSchema = z
   .object({
     displayName: z.string().trim().min(2).max(80),
+    avatarUrl: z.string().url('URL ảnh đại diện không hợp lệ').nullable(),
     // note: cùng regex với registerSchema; không nhận null vì phone là định danh đăng nhập
     phone: z.string().trim().regex(/^(0|\+84)[0-9]{9,10}$/, 'Số điện thoại không hợp lệ'),
     dateOfBirth: dateOnlySchema.nullable(),

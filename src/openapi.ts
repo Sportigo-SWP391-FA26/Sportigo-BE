@@ -6,6 +6,8 @@ import { userAdminPaths } from './modules/users/user-admin.openapi.js'
 import { notificationsPaths } from './modules/notifications/notifications.openapi.js'
 import { flow2Paths } from './modules/bookings/flow2.openapi.js'
 import { supportPaths } from './modules/support/support.openapi.js'
+import { contentPaths } from './modules/content/content.openapi.js'
+import { uploadPaths } from './modules/uploads/upload.openapi.js'
 
 export const openApiDocument = {
   openapi: '3.0.3',
@@ -36,6 +38,8 @@ export const openApiDocument = {
     { name: 'Bookings' }, { name: 'Waitlist' },
     { name: 'Private Courses' }, { name: 'Private Enrollments' },
     { name: 'Attendance' },
+    { name: 'Public Content' }, { name: 'Landing Management' }, { name: 'Member Home' },
+    { name: 'Uploads', description: 'Tải ảnh lên Cloudinary' },
   ],
   components: {
     securitySchemes: {
@@ -51,5 +55,7 @@ export const openApiDocument = {
     ...flow2Paths,
     ...financePaths,
     ...trainingPaths,
+    ...contentPaths,
+    ...uploadPaths,
   },
 } as const

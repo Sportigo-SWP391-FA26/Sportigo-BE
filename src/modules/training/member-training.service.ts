@@ -5,6 +5,8 @@ import {
 } from './member-training.repository.js'
 import { toAssessment } from './progress-assessment.service.js'
 import { toCoachRef, toDateOnly } from './training.common.js'
+import { KeyedReadCache } from '../../lib/read-cache.js'
+import { registerMemberTrainingCacheInvalidator } from './member-training-cache.js'
 
 type AssignmentRow = Awaited<
   ReturnType<typeof findMemberPlanAssignments>
@@ -25,14 +27,23 @@ function toPlanAssignment({ assignedBy, enrollment, ...rest }: AssignmentRow) {
   }
 }
 
+type MemberTrainingResult = {
+  planAssignments: ReturnType<typeof toPlanAssignment>[]
+  assessments: ReturnType<typeof toAssessment>[]
+}
+const memberTrainingCache = new KeyedReadCache<MemberTrainingResult>(15_000)
+registerMemberTrainingCacheInvalidator(() => memberTrainingCache.invalidate())
+
 // FR-53: chỉ dữ liệu của chính Member đang đăng nhập (id lấy từ token)
 export async function getMyTraining(user: AuthUser) {
-  const [assignments, assessments] = await Promise.all([
-    findMemberPlanAssignments(user.id),
-    findMemberAssessments(user.id),
-  ])
-  return {
-    planAssignments: assignments.map(toPlanAssignment),
-    assessments: assessments.map(toAssessment),
-  }
+  return memberTrainingCache.get(String(user.id), async () => {
+    const [assignments, assessments] = await Promise.all([
+      findMemberPlanAssignments(user.id),
+      findMemberAssessments(user.id),
+    ])
+    return {
+      planAssignments: assignments.map(toPlanAssignment),
+      assessments: assessments.map(toAssessment),
+    }
+  })
 }

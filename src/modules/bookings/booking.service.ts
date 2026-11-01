@@ -1,12 +1,12 @@
-import { PrismaClient, ClassStatus, RegistrationStatus, OrderStatus, OrderItemType, Prisma  } from '@prisma/client';
+import { ClassStatus, RegistrationStatus, OrderStatus, OrderItemType, Prisma  } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
+import { prisma } from '../../lib/prisma.js';
 import { lockGroupClass } from '../../lib/group-class-lock.js';
 import waitlistService from '../waitlist/waitlist.service.js';
 import { assertClassRegistrationCancellable } from './cancellation-policy.js';
 import { refundClassRegistrationToWallet } from '../finance/automatic-refund.service.js';
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
-
-const prisma = new PrismaClient();
+import { withTransactionRetry } from '../../lib/transaction-retry.js';
 
 export class BookingService {
   /**
@@ -23,17 +23,23 @@ export class BookingService {
     const page = filters.page ? Number(filters.page) : 1;
     const limit = filters.limit ? Number(filters.limit) : 10;
     const skip = (page - 1) * limit;
+    const now = new Date();
 
     const where: Prisma.GroupClassWhereInput = {
       status: ClassStatus.OPEN,
+      registrationOpenAt: { lte: now },
+      registrationCloseAt: { gt: now },
+      startDate: { gt: now },
     };
 
     if (filters.sportId) where.sportId = Number(filters.sportId);
     if (filters.coachId) where.coachId = Number(filters.coachId);
     if (filters.date) {
       const targetDate = new Date(filters.date);
-      where.startDate = { lte: targetDate };
-      where.endDate = { gte: targetDate };
+      where.AND = [
+        { startDate: { lte: targetDate } },
+        { endDate: { gte: targetDate } },
+      ];
     }
 
     const [classes, total] = await Promise.all([
@@ -41,7 +47,7 @@ export class BookingService {
         where,
         include: {
           sport: true,
-          coach: { include: { user: { select: { id: true, displayName: true } } } },
+          coach: { include: { user: { select: { id: true, displayName: true, avatarUrl: true } } } },
           _count: {
             select: {
               registrations: { where: { status: RegistrationStatus.CONFIRMED } },
@@ -74,7 +80,7 @@ export class BookingService {
       where: { id: classId, status: ClassStatus.OPEN },
       include: {
         sport: true,
-        coach: { include: { user: { select: { id: true, displayName: true } } } },
+        coach: { include: { user: { select: { id: true, displayName: true, avatarUrl: true } } } },
         sessions: {
           include: { room: true },
           orderBy: { startsAt: 'asc' },
@@ -262,7 +268,7 @@ export class BookingService {
     await this.validateMemberSchedule(memberId, classId);
 
     // Thực hiện Transaction: Tạo Order thanh toán + Bản ghi đăng ký PENDING_PAYMENT
-    return await prisma.$transaction(async (tx) => {
+    return withTransactionRetry(() => prisma.$transaction(async (tx) => {
       if (!await lockGroupClass(tx, classId)) {
         throw new HttpError(404, 'Lớp học không tồn tại trong hệ thống.', 'CLASS_NOT_FOUND');
       }
@@ -364,7 +370,7 @@ export class BookingService {
         registrationId: registration.id,
         status: registration.status,
       };
-    });
+    }));
   }
 
   async registerClassOnBehalf(memberId: number, classId: number) {
@@ -431,7 +437,7 @@ export class BookingService {
     const classId = registration.groupClass.id;
     const memberId = registration.memberId;
 
-    return await prisma.$transaction(async (tx) => {
+    return withTransactionRetry(() => prisma.$transaction(async (tx) => {
       if (!await lockGroupClass(tx, classId)) {
         throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND');
       }
@@ -506,11 +512,11 @@ export class BookingService {
           ? 'Hủy đăng ký lớp thành công và đã tự động hoàn tiền vào ví.'
           : 'Hủy đăng ký lớp thành công.',
       };
-    });
+    }));
   }
 
   async cancelGroupClass(classId: number, actorUserId: number) {
-    return prisma.$transaction(async (tx) => {
+    return withTransactionRetry(() => prisma.$transaction(async (tx) => {
       if (!await lockGroupClass(tx, classId)) {
         throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND');
       }
@@ -594,7 +600,7 @@ export class BookingService {
         refundedAmount,
         cancelledRegistrations: groupClass.registrations.length,
       };
-    });
+    }));
   }
 }
 

@@ -1,11 +1,13 @@
-import { PrismaClient, RoomStatus } from '@prisma/client';
+import { RoomStatus } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
+import { prisma } from '../../lib/prisma.js';
+import { ReadCache } from '../../lib/read-cache.js';
 
-const prisma = new PrismaClient();
+const roomsCache = new ReadCache(() => prisma.room.findMany({ orderBy: { createdAt: 'desc' } }), 60_000);
 
 export class RoomService {
   async getAllRooms() {
-    return await prisma.room.findMany({ orderBy: { createdAt: 'desc' } });
+    return roomsCache.get();
   }
 
   async createRoom(data: { code: string; name: string; capacity: number; location?: string; status?: RoomStatus }) {
@@ -18,7 +20,7 @@ export class RoomService {
       throw new HttpError(409, 'Mã phòng (Room Code) đã tồn tại.', 'ROOM_CODE_CONFLICT');
     }
 
-    return await prisma.room.create({
+    const created = await prisma.room.create({
       data: {
         code: data.code,
         name: data.name,
@@ -27,13 +29,17 @@ export class RoomService {
         status: data.status || RoomStatus.AVAILABLE,
       },
     });
+    roomsCache.invalidate();
+    return created;
   }
 
   async updateRoom(id: number, data: { name?: string; capacity?: number; location?: string; status?: RoomStatus }) {
     if (data.capacity !== undefined && data.capacity <= 0) {
       throw new HttpError(400, 'Sức chứa của phòng phải lớn hơn 0.', 'INVALID_ROOM_CAPACITY');
     }
-    return await prisma.room.update({ where: { id }, data });
+    const updated = await prisma.room.update({ where: { id }, data });
+    roomsCache.invalidate();
+    return updated;
   }
 
   async deleteRoom(id: number) {
@@ -43,7 +49,9 @@ export class RoomService {
     if (activeSessions > 0) {
       throw new HttpError(409, 'Không thể xóa phòng đang có lịch học sắp diễn ra.', 'ROOM_HAS_SCHEDULED_SESSIONS');
     }
-    return await prisma.room.delete({ where: { id } });
+    const deleted = await prisma.room.delete({ where: { id } });
+    roomsCache.invalidate();
+    return deleted;
   }
 }
 

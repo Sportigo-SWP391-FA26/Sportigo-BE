@@ -1,11 +1,20 @@
-import { PrismaClient, ClassStatus, CoachStatus, Prisma } from '@prisma/client';
+import { ClassStatus, CoachStatus, Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
+import { prisma } from '../../lib/prisma.js';
 import sessionService from '../class-sessions/session.service.js';
 import coachService from '../coaches/coach.service.js';
 import { audit } from '../../lib/audit.js';
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
+import { ReadCache } from '../../lib/read-cache.js';
 
-const prisma = new PrismaClient();
+const loadGroupClasses = () => prisma.groupClass.findMany({
+  include: {
+    sport: true,
+    coach: { include: { user: { select: { id: true, displayName: true } } } },
+  },
+  orderBy: { createdAt: 'desc' },
+});
+const groupClassesCache = new ReadCache(loadGroupClasses, 30_000);
 
 export interface CreateGroupClassDto {
   sportId: number;
@@ -23,15 +32,7 @@ export interface CreateGroupClassDto {
 export class GroupClassService {
   // Lấy danh sách lớp nhóm
   async getAllGroupClasses() {
-    return await prisma.groupClass.findMany({
-      include: {
-        sport: true,
-        coach: {
-          include: { user: { select: { id: true, displayName: true } } },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    return groupClassesCache.get();
   }
 
   // FR-15: Tạo lớp nhóm (Mặc định trạng thái là DRAFT)
@@ -63,7 +64,7 @@ export class GroupClassService {
       throw new HttpError(409, 'Huấn luyện viên này không có chuyên môn dạy môn thể thao của lớp học.', 'COACH_NOT_QUALIFIED');
     }
 
-    return await prisma.groupClass.create({
+    const created = await prisma.groupClass.create({
       data: {
         sportId: data.sportId,
         coachId: data.coachId,
@@ -78,6 +79,8 @@ export class GroupClassService {
         status: ClassStatus.DRAFT,
       },
     });
+    groupClassesCache.invalidate();
+    return created;
   }
 
   async updateGroupClass(classId: number, data: Partial<CreateGroupClassDto>, actorId: number) {
@@ -202,7 +205,7 @@ export class GroupClassService {
     if (data.startDate !== undefined) updateData.startDate = startDate;
     if (data.endDate !== undefined) updateData.endDate = endDate;
 
-    return prisma.$transaction(async (tx) => {
+    const updatedClass = await prisma.$transaction(async (tx) => {
       const updated = await tx.groupClass.update({ where: { id: classId }, data: updateData });
       await audit(tx, {
         actorId,
@@ -230,6 +233,8 @@ export class GroupClassService {
       }
       return updated;
     });
+    groupClassesCache.invalidate();
+    return updatedClass;
   }
 
   // Chuyển trạng thái lớp sang OPEN (Kiểm tra điều kiện hợp lệ)
@@ -246,10 +251,12 @@ export class GroupClassService {
       }
     }
 
-    return await prisma.groupClass.update({
+    const updated = await prisma.groupClass.update({
       where: { id },
       data: { status },
     });
+    groupClassesCache.invalidate();
+    return updated;
   }
 
   // FR-16: Phân công hoặc thay đổi Coach cho lớp nhóm
@@ -297,7 +304,7 @@ export class GroupClassService {
 
     if (groupClass.coachId === newCoachId) return groupClass;
 
-    return prisma.$transaction(async (tx) => {
+    const updatedClass = await prisma.$transaction(async (tx) => {
       const updated = await tx.groupClass.update({
         where: { id: classId },
         data: { coachId: newCoachId },
@@ -318,6 +325,8 @@ export class GroupClassService {
       });
       return updated;
     });
+    groupClassesCache.invalidate();
+    return updatedClass;
   }
 }
 

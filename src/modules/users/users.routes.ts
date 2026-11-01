@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authenticate, authorize } from '../../middleware/auth.js'
-import { changeUserStatus, listUsers } from './user-admin.controller.js'
+import { changeUserStatus, deleteUserAccount, listUsers } from './user-admin.controller.js'
 import { changePassword, confirmEmailChange, getMe, requestEmailChange, updateMe } from './users.controller.js'
 
 // Gắn tại /api/users. Route /me phải khai báo trước /:id để "me" không bị hiểu là id.
@@ -19,3 +19,4 @@ usersRouter.get('/', ...staffOnly, listUsers)
 // FR-06: chỉ Center Manager được khóa/mở khóa
 const managerOnly = [authenticate, authorize('CENTER_MANAGER')]
 usersRouter.patch('/:id/status', ...managerOnly, changeUserStatus)
+usersRouter.delete('/:id', ...managerOnly, deleteUserAccount)

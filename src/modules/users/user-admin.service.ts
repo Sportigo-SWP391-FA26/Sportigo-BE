@@ -1,8 +1,16 @@
 import type { Prisma } from '@prisma/client'
 import { HttpError } from '../../lib/http-error.js'
 import { FORBIDDEN_MESSAGE, type AuthUser } from '../../middleware/auth.js'
-import { changeUserStatus, findUserSummary, searchUsers, type UserSummaryRow } from './user-admin.repository.js'
+import { changeUserStatus, findUserSummary, searchUsers, softDeleteUser, type UserSummaryRow } from './user-admin.repository.js'
 import type { ChangeUserStatusInput, ListUsersQuery } from './user-admin.schema.js'
+import { KeyedReadCache } from '../../lib/read-cache.js'
+
+type UserListResult = { items: ReturnType<typeof toUserSummary>[]; page: number; pageSize: number; total: number }
+const userListCache = new KeyedReadCache<UserListResult>(30_000)
+
+export function invalidateUserListCache() {
+  userListCache.invalidate()
+}
 
 export function toUserSummary(user: UserSummaryRow) {
   return {
@@ -41,13 +49,16 @@ export async function listUsers(actor: AuthUser, query: ListUsersQuery) {
   }
   const role = actor.role === 'RECEPTIONIST' ? 'MEMBER' : query.role
 
-  const where: Prisma.UserWhereInput = {
-    ...(role ? { role: { name: role } } : {}),
-    ...(query.status ? { status: query.status } : {}),
-    ...(query.q ? searchWhere(query.q) : {}),
-  }
-  const [rows, total] = await searchUsers(where, (query.page - 1) * query.pageSize, query.pageSize)
-  return { items: rows.map(toUserSummary), page: query.page, pageSize: query.pageSize, total }
+  const key = JSON.stringify({ role, status: query.status, q: query.q, page: query.page, pageSize: query.pageSize })
+  return userListCache.get(key, async () => {
+    const where: Prisma.UserWhereInput = {
+      ...(role ? { role: { name: role } } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.q ? searchWhere(query.q) : {}),
+    }
+    const [rows, total] = await searchUsers(where, (query.page - 1) * query.pageSize, query.pageSize)
+    return { items: rows.map(toUserSummary), page: query.page, pageSize: query.pageSize, total }
+  })
 }
 
 // FR-06
@@ -65,12 +76,31 @@ export async function changeStatus(actor: AuthUser, userId: number, input: Chang
   if (input.status === 'LOCKED') {
     if (target.status === 'LOCKED') throw new HttpError(409, 'Tài khoản đã bị khóa', 'STATUS_UNCHANGED')
   } else {
-    if (target.status !== 'LOCKED') throw new HttpError(409, 'Tài khoản không ở trạng thái bị khóa', 'STATUS_UNCHANGED')
-    // note: mở khóa tài khoản chưa xác minh email thì trả về INACTIVE, không cho bỏ qua bước xác minh
-    if (!target.emailVerifiedAt) next = 'INACTIVE'
+    if (target.status === 'ACTIVE') throw new HttpError(409, 'Tài khoản đã được kích hoạt', 'STATUS_UNCHANGED')
+    // Mở khóa vẫn giữ yêu cầu xác minh cũ; riêng INACTIVE là thao tác kích hoạt thủ công có chủ đích.
+    if (target.status === 'LOCKED' && !target.emailVerifiedAt) next = 'INACTIVE'
   }
 
-  const updated = await changeUserStatus({ actorId: actor.id, userId, from: target.status, to: next, reason: input.reason, ipAddress })
+  const updated = await changeUserStatus({
+    actorId: actor.id,
+    userId,
+    from: target.status,
+    to: next,
+    reason: input.reason,
+    ipAddress,
+    verifyEmail: target.status === 'INACTIVE' && next === 'ACTIVE',
+  })
   if (!updated) throw new HttpError(409, 'Trạng thái tài khoản vừa bị thay đổi, vui lòng tải lại', 'STATUS_CONFLICT')
+  invalidateUserListCache()
   return toUserSummary(updated)
+}
+
+
+export async function deleteAccount(actor: AuthUser, userId: number, ipAddress?: string) {
+  if (actor.id === userId) throw new HttpError(400, 'Không thể tự xóa tài khoản của mình', 'CANNOT_DELETE_OWN_ACCOUNT')
+  const target = await findUserSummary(userId)
+  if (!target) throw new HttpError(404, 'Không tìm thấy người dùng', 'USER_NOT_FOUND')
+  if (target.role.name === 'CENTER_MANAGER') throw new HttpError(403, 'Không thể xóa tài khoản Center Manager', 'CANNOT_DELETE_MANAGER')
+  await softDeleteUser(actor.id, userId, ipAddress)
+  invalidateUserListCache()
 }
