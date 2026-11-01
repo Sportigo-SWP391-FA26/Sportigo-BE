@@ -13,11 +13,26 @@ const allowedOrigins = env.CORS_ORIGIN.split(',')
   .map((origin) => origin.trim())
   .filter(Boolean)
 
+export function isOriginAllowed(origin: string, patterns = allowedOrigins) {
+  return patterns.some((pattern) => {
+    if (pattern === origin) return true
+    if (!pattern.startsWith('https://*.')) return false
+
+    const suffix = pattern.slice('https://*'.length)
+    try {
+      const url = new URL(origin)
+      return url.protocol === 'https:' && url.hostname.endsWith(suffix) && url.hostname !== suffix.slice(1)
+    } catch {
+      return false
+    }
+  })
+}
+
 app.use(helmet())
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || isOriginAllowed(origin)) {
         callback(null, true)
         return
       }
