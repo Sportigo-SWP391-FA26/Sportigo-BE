@@ -1,5 +1,4 @@
 import { env } from '../../config/env.js'
-// TEMP(FR-05): sendEmail được export tạm từ auth/email.service.ts, xem comment tại đó
 import { sendEmail } from '../auth/email.service.js'
 
 // note: escape tên người dùng trước khi chèn vào HTML để tránh chèn mã độc vào email

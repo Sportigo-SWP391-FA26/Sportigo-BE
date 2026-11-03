@@ -35,8 +35,7 @@ function publicUser(user: { id: number; email: string; phone: string | null; dis
   return { id: user.id, email: user.email, phone: user.phone, displayName: user.displayName, role: user.role.name }
 }
 
-// TEMP(FR-62): thêm "export" để users.service cấp phiên mới sau khi đổi mật khẩu; logic không đổi.
-// Khi Tài export chính thức (hoặc đổi tên/chuyển chỗ) thì sửa import trong users.service.ts và xóa comment này.
+// note: export để module khác cấp phiên mới theo đúng quy trình login (vd. users sau khi đổi mật khẩu, FR-62)
 export async function createSession(user: { id: number; role: { name: string } }) {
   const tokenId = randomUUID()
   const refreshToken = createRefreshToken({ userId: user.id, role: user.role.name, tokenId })

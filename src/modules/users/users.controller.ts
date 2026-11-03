@@ -1,6 +1,5 @@
 import type { RequestHandler } from 'express'
 import { getAuthUser } from '../../middleware/auth.js'
-// TEMP(FR-62): REFRESH_COOKIE, cookieOptions được export tạm từ auth.controller.ts, xem comment tại đó
 import { REFRESH_COOKIE, cookieOptions } from '../auth/auth.controller.js'
 import { changePasswordSchema, confirmEmailChangeSchema, emailChangeSchema, updateProfileSchema } from './users.schema.js'
 import * as usersService from './users.service.js'

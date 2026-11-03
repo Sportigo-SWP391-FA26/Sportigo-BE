@@ -4,8 +4,7 @@ import { HttpError } from '../../lib/http-error.js'
 import { forgotPasswordSchema, googleLoginSchema, loginSchema, refreshSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, verifyEmailSchema } from './auth.schema.js'
 import * as authService from './auth.service.js'
 
-// TEMP(FR-62): thêm "export" để users.controller set cookie refresh mới khi đổi mật khẩu; giá trị không đổi.
-// Khi Tài export chính thức thì sửa import trong users.controller.ts và xóa comment này.
+// note: export để module khác cấp phiên mới (vd. users khi đổi mật khẩu, FR-62) set cookie đúng tên và option như login
 export const REFRESH_COOKIE = 'sportigo_refresh'
 export const cookieOptions = {
   httpOnly: true,

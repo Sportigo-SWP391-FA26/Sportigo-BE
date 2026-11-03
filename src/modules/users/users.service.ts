@@ -3,7 +3,6 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { HttpError } from '../../lib/http-error.js'
 import { KeyedReadCache } from '../../lib/read-cache.js'
 import { sendEmailChangeCode } from './email-change.mail.js'
-// TEMP(FR-62): createSession được export tạm từ auth.service.ts, xem comment tại đó
 import { createSession } from '../auth/auth.service.js'
 import {
   applyEmailChange,
