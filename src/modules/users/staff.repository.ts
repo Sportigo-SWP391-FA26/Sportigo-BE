@@ -1,5 +1,4 @@
 import type { Prisma } from '@prisma/client'
-// TEMP(FR-62): src/lib/audit.ts là bản tạm, xem comment tại đó
 import { audit } from '../../lib/audit.js'
 import { prisma } from '../../lib/prisma.js'
 

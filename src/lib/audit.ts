@@ -1,9 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 
-// TEMP(FR-62): bản tạm, sao chép nguyên hàm audit() private trong src/modules/finance/finance.service.ts:12.
-// Khi Tài push bản audit dùng chung chính thức: xóa file này (hoặc thay bằng bản của Tài), sửa import
-// trong src/modules/users/users.repository.ts, và cho finance.service.ts dùng lại cùng một hàm.
-// Grep "TEMP(FR-62)" để thấy mọi chỗ cần dọn.
+// note: hàm ghi Audit Log dùng chung cho mọi module (FR-59). Trước đây finance có bản private riêng,
+// nay finance và users/support cùng gọi hàm này để mọi log có cùng định dạng.
 
 type Db = Prisma.TransactionClient | PrismaClient
 

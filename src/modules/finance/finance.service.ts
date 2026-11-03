@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { Prisma, type OrderItemType, type PrismaClient } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { HttpError } from '../../lib/http-error.js'
+// note: dùng hàm audit chung thay cho bản private trước đây (cùng logic, cùng định dạng log)
+import { audit } from '../../lib/audit.js'
 import { createPaymentUrl, type VnpayParams, verifyVnpay } from './vnpay.js'
 import { calculateDiscount, calculateRefundable, calculateRemaining, isFullyRefunded, toMoney } from './finance.math.js'
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
@@ -12,10 +14,6 @@ const vnd = (value: Prisma.Decimal) => `${Number(value.toFixed(0)).toLocaleStrin
 type Db = Prisma.TransactionClient | PrismaClient
 const money = toMoney
 const asNumber = (value: Prisma.Decimal) => Number(value.toFixed(2))
-
-async function audit(db: Db, input: { actorId?: number; action: string; entityType: string; entityId: string | number; oldData?: unknown; newData?: unknown; ipAddress?: string }) {
-  await db.auditLog.create({ data: { actorId: input.actorId, action: input.action, entityType: input.entityType, entityId: String(input.entityId), oldData: input.oldData as Prisma.InputJsonValue | undefined, newData: input.newData as Prisma.InputJsonValue | undefined, ipAddress: input.ipAddress } })
-}
 
 const orderInclude = {
   items: { include: { classRegistration: true, privateEnrollment: true } },

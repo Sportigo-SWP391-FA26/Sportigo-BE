@@ -1,6 +1,5 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
-// TEMP(FR-62): src/lib/audit.ts là bản tạm, xem comment tại đó
 import { audit } from '../../lib/audit.js'
 
 export const profileInclude = {

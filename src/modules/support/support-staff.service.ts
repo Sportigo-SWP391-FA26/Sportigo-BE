@@ -1,5 +1,4 @@
 import type { Prisma, RequestStatus } from '@prisma/client'
-// TEMP(FR-62): src/lib/audit.ts là bản tạm, xem comment tại đó
 import { audit } from '../../lib/audit.js'
 import { HttpError } from '../../lib/http-error.js'
 import { FORBIDDEN_MESSAGE, type AuthUser } from '../../middleware/auth.js'
