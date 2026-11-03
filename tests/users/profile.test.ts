@@ -23,6 +23,7 @@ vi.mock('../../src/lib/prisma.js', () => ({ prisma }))
 import { errorHandler } from '../../src/middleware/error-handler.js'
 import { createAccessToken } from '../../src/modules/auth/token.service.js'
 import { usersRouter } from '../../src/modules/users/users.routes.js'
+import { invalidateProfileCache } from '../../src/modules/users/users.service.js'
 
 // note: app nhỏ chỉ gắn router users + errorHandler thật để kiểm tra mã lỗi trả về
 const app = express()
@@ -61,6 +62,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // note: GET /users/me có cache 15s theo userId; xóa giữa các test để test sau không đọc lại dữ liệu của test trước
+  invalidateProfileCache()
   prisma.user.findFirst.mockResolvedValue(null)
 })
 
