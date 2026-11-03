@@ -110,6 +110,13 @@ function splitChanges(input: UpdateProfileInput): ProfileChanges {
   return changes
 }
 
+// note: module khác (khóa/mở khóa, xóa tài khoản) gọi hàm này khi trạng thái user đổi.
+// Cache dạng stale-while-revalidate nuốt lỗi khi làm mới ngầm, nên nếu không xóa thì user vừa bị khóa
+// vẫn đọc được /users/me bằng bản cũ (ACTIVE) cho tới khi server khởi động lại.
+export function invalidateProfileCache() {
+  profileReadCache.invalidate()
+}
+
 export async function getMe(userId: number) {
   return toProfile(await profileReadCache.get(String(userId), () => requireActiveUser(userId)))
 }

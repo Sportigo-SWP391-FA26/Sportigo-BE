@@ -50,6 +50,23 @@ describe('FR-06 Khóa/mở khóa tài khoản', () => {
     prisma.user.updateMany.mockResolvedValue({ count: 1 })
   })
 
+  it('hồ sơ đã nằm trong cache rồi bị khóa thì GET /users/me lần sau bị chặn 403 ngay', async () => {
+    // note: lần 1 Member đọc hồ sơ khi còn ACTIVE → kết quả được cache 15s
+    prisma.user.findUnique.mockResolvedValue({ ...member(), member: null })
+    const before = await request(app).get('/users/me').set('Authorization', auth('MEMBER', 5))
+    expect(before.status).toBe(200)
+
+    // note: Manager khóa tài khoản; từ đây DB trả status LOCKED
+    prisma.user.findUniqueOrThrow.mockResolvedValue(member({ status: 'LOCKED' }))
+    expect((await lock()).status).toBe(200)
+    prisma.user.findUnique.mockResolvedValue({ ...member({ status: 'LOCKED' }), member: null })
+
+    // note: trước khi sửa, cache cũ vẫn trả 200 mãi vì lỗi làm mới ngầm bị nuốt
+    const after = await request(app).get('/users/me').set('Authorization', auth('MEMBER', 5))
+    expect(after.status).toBe(403)
+    expect(after.body.code).toBe('ACCOUNT_INACTIVE')
+  })
+
   it('chỉ Center Manager được gọi', async () => {
     expect((await lock(5, 'RECEPTIONIST')).status).toBe(403)
     expect((await lock(5, 'MEMBER')).status).toBe(403)

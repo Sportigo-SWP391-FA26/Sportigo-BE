@@ -4,6 +4,8 @@ import { FORBIDDEN_MESSAGE, type AuthUser } from '../../middleware/auth.js'
 import { changeUserStatus, findUserSummary, searchUsers, softDeleteUser, type UserSummaryRow } from './user-admin.repository.js'
 import type { ChangeUserStatusInput, ListUsersQuery } from './user-admin.schema.js'
 import { KeyedReadCache } from '../../lib/read-cache.js'
+// note: dùng để xóa cache hồ sơ khi đổi trạng thái/xóa tài khoản
+import { invalidateProfileCache } from './users.service.js'
 
 type UserListResult = { items: ReturnType<typeof toUserSummary>[]; page: number; pageSize: number; total: number }
 const userListCache = new KeyedReadCache<UserListResult>(30_000)
@@ -92,6 +94,8 @@ export async function changeStatus(actor: AuthUser, userId: number, input: Chang
   })
   if (!updated) throw new HttpError(409, 'Trạng thái tài khoản vừa bị thay đổi, vui lòng tải lại', 'STATUS_CONFLICT')
   invalidateUserListCache()
+  // note: xóa cache /users/me để tài khoản vừa khóa bị chặn ngay (403), vừa mở khóa thì thấy trạng thái mới ngay
+  invalidateProfileCache()
   return toUserSummary(updated)
 }
 
@@ -103,4 +107,6 @@ export async function deleteAccount(actor: AuthUser, userId: number, ipAddress?:
   if (target.role.name === 'CENTER_MANAGER') throw new HttpError(403, 'Không thể xóa tài khoản Center Manager', 'CANNOT_DELETE_MANAGER')
   await softDeleteUser(actor.id, userId, ipAddress)
   invalidateUserListCache()
+  // note: tài khoản đã xóa mềm cũng không được đọc hồ sơ từ cache cũ
+  invalidateProfileCache()
 }
