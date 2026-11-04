@@ -6,6 +6,7 @@ const router = Router();
 
 router.get('/classes', bookingController.getPublicClasses);
 router.get('/classes/:id', bookingController.getClassDetail);
+router.get('/registrations/me', authenticate, authorize('MEMBER'), bookingController.getMyRegistrations);
 router.post('/classes/:id/register', authenticate, authorize('MEMBER'), bookingController.registerClass);
 router.post('/registrations/:id/cancel', authenticate, authorize('MEMBER', 'RECEPTIONIST'), bookingController.cancelRegistration);
 

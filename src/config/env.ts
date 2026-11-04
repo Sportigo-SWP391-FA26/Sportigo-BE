@@ -36,7 +36,7 @@ const schema = z.object({
   VNPAY_HASH_SECRET: z.string().min(1).optional(),
   VNPAY_PAYMENT_URL: z.string().url().default('https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'),
   VNPAY_API_URL: z.string().url().default('https://sandbox.vnpayment.vn/merchant_webapi/api/transaction'),
-  VNPAY_RETURN_URL: z.string().url().default('http://localhost:5173/member/payments/result'),
+  VNPAY_RETURN_URL: z.string().url().default('http://localhost:3000/api/payments/vnpay/return'),
   VNPAY_IPN_URL: z.string().url().optional(),
 })
 

@@ -8,6 +8,8 @@ export const classReportSchema = z.object({ from: z.coerce.date().optional(), to
 export const auditListSchema = paginationSchema.extend({ actorId: z.coerce.number().int().positive().optional(), action: z.string().trim().min(1).optional(), entityType: z.string().trim().min(1).optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() })
 export const promotionApplySchema = z.object({ code: z.string().trim().min(1).max(50) })
 export const walletPaymentSchema = z.object({ amount: z.coerce.number().positive().multipleOf(0.01) })
+export const walletTopUpSchema = z.object({ amount: z.coerce.number().int().min(10000).max(50000000) })
+export const cashOrderSearchSchema = z.object({ q: z.string().trim().min(2).max(100) })
 export const cashPaymentSchema = z.object({ amount: z.coerce.number().positive().multipleOf(0.01) })
 export const refundCreateSchema = z.object({ requestedAmount: z.coerce.number().positive().multipleOf(0.01), reason: z.string().trim().min(5).max(1000) })
 export const refundReviewSchema = z.object({ decision: z.enum(['REVIEW', 'APPROVE', 'REJECT']), note: z.string().trim().min(3).max(1000), approvedAmount: z.coerce.number().positive().multipleOf(0.01).optional() }).superRefine((value, ctx) => { if (value.decision === 'APPROVE' && !value.approvedAmount) ctx.addIssue({ code: 'custom', path: ['approvedAmount'], message: 'Cần nhập số tiền được duyệt' }) })
@@ -19,6 +21,21 @@ export const promotionSchema = z.object({
   startAt: z.coerce.date(), endAt: z.coerce.date(), totalUsageLimit: z.coerce.number().int().positive().nullable().optional(),
   perMemberLimit: z.coerce.number().int().positive().nullable().optional(), status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE', 'EXPIRED']).default('DRAFT'),
 }).refine((value) => value.endAt > value.startAt, { message: 'Thời gian khuyến mãi không hợp lệ', path: ['endAt'] })
+
+export const promotionUpdateSchema = z.object({
+  code: z.string().trim().min(3).max(50).transform((value) => value.toUpperCase()).optional(),
+  name: z.string().trim().min(2).max(160).optional(),
+  discountType: z.enum(['PERCENTAGE', 'FIXED_AMOUNT']).optional(),
+  discountValue: z.coerce.number().positive().optional(),
+  maxDiscount: z.coerce.number().positive().nullable().optional(),
+  minOrderAmount: z.coerce.number().min(0).optional(),
+  applicableType: z.enum(['ALL', 'GROUP_CLASS', 'PRIVATE_COURSE']).optional(),
+  startAt: z.coerce.date().optional(),
+  endAt: z.coerce.date().optional(),
+  totalUsageLimit: z.coerce.number().int().positive().nullable().optional(),
+  perMemberLimit: z.coerce.number().int().positive().nullable().optional(),
+  status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE', 'EXPIRED']).optional(),
+}).refine((value) => !value.startAt || !value.endAt || value.endAt > value.startAt, { message: 'Thời gian khuyến mãi không hợp lệ', path: ['endAt'] })
 
 export const orderItemSchema = z.object({
   itemType: z.enum(['GROUP_CLASS', 'PRIVATE_COURSE']), itemName: z.string().trim().min(2).max(200),

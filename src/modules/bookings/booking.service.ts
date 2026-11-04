@@ -9,6 +9,42 @@ import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
 import { withTransactionRetry } from '../../lib/transaction-retry.js';
 
 export class BookingService {
+  /** Lịch lớp nhóm và các đăng ký đang chờ thanh toán của Member hiện tại. */
+  async getMyRegistrations(memberId: number) {
+    const registrations = await prisma.classRegistration.findMany({
+      where: {
+        memberId,
+        status: { in: [RegistrationStatus.PENDING_PAYMENT, RegistrationStatus.CONFIRMED] },
+      },
+      include: {
+        groupClass: {
+          include: {
+            sport: { select: { id: true, name: true, imageUrl: true } },
+            coach: { include: { user: { select: { id: true, displayName: true, avatarUrl: true } } } },
+            sessions: {
+              where: { status: 'SCHEDULED' },
+              include: { room: { select: { id: true, code: true, name: true } } },
+              orderBy: { startsAt: 'asc' },
+            },
+          },
+        },
+        orderItem: {
+          include: {
+            order: {
+              select: { id: true, orderNumber: true, status: true, finalAmount: true, expiresAt: true },
+            },
+          },
+        },
+      },
+      orderBy: { registeredAt: 'desc' },
+    });
+
+    return registrations.map(({ orderItem, ...registration }) => ({
+      ...registration,
+      order: orderItem?.order ?? null,
+    }));
+  }
+
   /**
    * FR-21: Lọc và tìm kiếm lớp nhóm công khai (Phân trang)
    */

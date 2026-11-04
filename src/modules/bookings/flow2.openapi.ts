@@ -193,6 +193,9 @@ export const flow2Paths = {
   '/bookings/classes/{id}/register': {
     post: operation('Bookings', 'Member đăng ký lớp và tạo Order', { parameters: [id()], responses: created }),
   },
+  '/bookings/registrations/me': {
+    get: operation('Bookings', 'Lịch lớp nhóm và đăng ký chờ thanh toán của Member', { responses: ok }),
+  },
   '/bookings/registrations/{id}/cancel': {
     post: operation('Bookings', 'Hủy đăng ký trước 48 giờ và tự động hoàn tiền vào ví', { parameters: [id()], responses: ok }),
   },

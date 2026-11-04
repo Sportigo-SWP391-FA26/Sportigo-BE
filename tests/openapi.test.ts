@@ -29,6 +29,8 @@ describe('OpenAPI document', () => {
       '/sessions/{sessionId}/attendance',
       '/reports/attendance',
       '/orders/{id}/payments/vnpay',
+      '/wallet/top-ups/vnpay',
+      '/orders/cashier/search',
       '/workout-plans',
     ]
 

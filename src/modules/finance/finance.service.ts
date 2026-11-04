@@ -66,6 +66,7 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
     if (!promotion || promotion.status !== 'ACTIVE' || promotion.startAt > now || promotion.endAt < now) throw new HttpError(400, 'Mã khuyến mãi không hợp lệ hoặc đã hết hạn', 'INVALID_PROMOTION')
     if (order.originalAmount.lessThan(promotion.minOrderAmount)) throw new HttpError(400, 'Đơn hàng chưa đạt giá trị tối thiểu', 'PROMOTION_MINIMUM_NOT_MET')
     const itemTypes = new Set(order.items.map((item) => item.itemType))
+    if (itemTypes.has('WALLET_TOP_UP')) throw new HttpError(400, 'Mã khuyến mãi không áp dụng cho giao dịch nạp ví', 'PROMOTION_SCOPE_MISMATCH')
     if (promotion.applicableType !== 'ALL' && !itemTypes.has(promotion.applicableType)) throw new HttpError(400, 'Mã không áp dụng cho dịch vụ này', 'PROMOTION_SCOPE_MISMATCH')
     const [total, memberTotal] = await Promise.all([
       tx.promotionUsage.count({ where: { promotionId: promotion.id, orderId: { not: order.id } } }),
@@ -73,7 +74,9 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
     ])
     if (promotion.totalUsageLimit && total >= promotion.totalUsageLimit || promotion.perMemberLimit && memberTotal >= promotion.perMemberLimit) throw new HttpError(409, 'Mã khuyến mãi đã hết lượt sử dụng', 'PROMOTION_USAGE_LIMIT')
     const discount = calculateDiscount({ originalAmount: order.originalAmount, discountType: promotion.discountType, discountValue: promotion.discountValue, maxDiscount: promotion.maxDiscount })
-    const updated = await tx.serviceOrder.update({ where: { id: order.id }, data: { promotionId: promotion.id, discountAmount: discount, finalAmount: order.originalAmount.minus(discount) }, include: orderInclude })
+    const finalAmount = order.originalAmount.minus(discount)
+    const updated = await tx.serviceOrder.update({ where: { id: order.id }, data: { promotionId: promotion.id, discountAmount: discount, finalAmount }, include: orderInclude })
+    await tx.payment.updateMany({ where: { orderId: order.id, status: 'PENDING' }, data: { amount: finalAmount } })
     await tx.promotionUsage.upsert({ where: { orderId: order.id }, create: { orderId: order.id, promotionId: promotion.id, memberId: order.memberId }, update: { promotionId: promotion.id, memberId: order.memberId } })
     await audit(tx, { actorId: user.id, action: 'APPLY_PROMOTION', entityType: 'ServiceOrder', entityId: order.id, oldData: { promotionId: order.promotionId }, newData: { promotionId: promotion.id, discount: discount.toString() } })
     return updated
@@ -110,10 +113,23 @@ async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) 
     if (item.classRegistrationId) await tx.classRegistration.update({ where: { id: item.classRegistrationId }, data: { status: 'CONFIRMED' } })
     if (item.privateEnrollmentId) await tx.privateCourseEnrollment.update({ where: { id: item.privateEnrollmentId }, data: { status: 'ACTIVE' } })
   }
+  const topUpItem = order.items.find((item) => item.itemType === 'WALLET_TOP_UP')
+  if (topUpItem) {
+    const idempotencyKey = `WALLET_TOP_UP:${order.id}`
+    const existing = await tx.walletTransaction.findUnique({ where: { idempotencyKey } })
+    if (!existing) {
+      const wallet = await tx.wallet.upsert({ where: { memberId: order.memberId }, create: { memberId: order.memberId }, update: {} })
+      const balanceAfter = wallet.balance.plus(order.finalAmount)
+      const credited = await tx.wallet.updateMany({ where: { id: wallet.id, version: wallet.version }, data: { balance: balanceAfter, version: { increment: 1 } } })
+      if (credited.count !== 1) throw new HttpError(409, 'Số dư ví vừa thay đổi, vui lòng thử lại', 'WALLET_CONFLICT')
+      await tx.walletTransaction.create({ data: { walletId: wallet.id, createdById: order.memberId, type: 'TOP_UP_CREDIT', amount: order.finalAmount, balanceBefore: wallet.balance, balanceAfter, referenceType: 'ServiceOrder', referenceId: String(order.id), idempotencyKey, description: `Nạp ví qua VNPay - ${order.orderNumber}` } })
+      await audit(tx, { actorId: order.memberId, action: 'WALLET_TOP_UP', entityType: 'Wallet', entityId: wallet.id, newData: { orderId: order.id, amount: order.finalAmount.toString(), balanceAfter: balanceAfter.toString() } })
+    }
+  }
   if (order.promotionId) await tx.promotionUsage.upsert({ where: { orderId }, create: { orderId, promotionId: order.promotionId, memberId: order.memberId }, update: {} })
   await tx.invoice.upsert({ where: { orderId }, create: { orderId, invoiceNumber: `INV-${Date.now()}-${orderId}`, subtotal: order.originalAmount, discountAmount: order.discountAmount, totalAmount: order.finalAmount }, update: {} })
   // note(FR-54): chỉ báo lần đầu đơn chuyển sang PAID, callback VNPay lặp lại không tạo thông báo trùng
-  if (order.status !== 'PAID') await notify(tx, { userIds: [order.memberId], type: NOTIFICATION_TYPES.PAYMENT_SUCCESS, title: 'Thanh toán thành công', content: `Đơn ${order.orderNumber} đã được thanh toán đủ ${vnd(order.finalAmount)}. Dịch vụ của bạn đã được kích hoạt.` })
+  if (order.status !== 'PAID') await notify(tx, { userIds: [order.memberId], type: NOTIFICATION_TYPES.PAYMENT_SUCCESS, title: topUpItem ? 'Nạp ví thành công' : 'Thanh toán thành công', content: topUpItem ? `Ví Sportigo đã được cộng ${vnd(order.finalAmount)} từ đơn ${order.orderNumber}.` : `Đơn ${order.orderNumber} đã được thanh toán đủ ${vnd(order.finalAmount)}. Dịch vụ của bạn đã được kích hoạt.` })
   return tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude })
 }
 
@@ -127,6 +143,74 @@ export async function createVnpayPayment(orderId: number, user: { id: number; ro
     const payment = await tx.payment.create({ data: { orderId, paymentMethodId: method.id, reference, amount: due, channel: 'ONLINE', status: 'PENDING', onlineTransaction: { create: { provider: 'VNPAY', requestPayload: { orderId, amount: due.toString() } } } } })
     return { paymentId: payment.id, amount: asNumber(due), paymentUrl: createPaymentUrl({ reference, amount: asNumber(due), ipAddress, orderInfo: `Thanh toan don hang ${order.orderNumber}` }) }
   })
+}
+
+export async function createWalletTopUp(memberId: number, amount: number, ipAddress: string) {
+  const topUpAmount = money(amount)
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.serviceOrder.create({
+      data: {
+        memberId,
+        orderNumber: `TOPUP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        originalAmount: topUpAmount,
+        discountAmount: 0,
+        finalAmount: topUpAmount,
+        status: 'PENDING_PAYMENT',
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        items: { create: { itemType: 'WALLET_TOP_UP', itemNameSnapshot: 'Nạp tiền vào ví Sportigo', unitPrice: topUpAmount, finalAmount: topUpAmount } },
+      },
+    })
+    const method = await ensureMethod(tx, 'VNPAY', 'VNPay Sandbox', true)
+    const reference = `VNP-${Date.now()}-${order.id}`
+    const payment = await tx.payment.create({
+      data: {
+        orderId: order.id,
+        paymentMethodId: method.id,
+        reference,
+        amount: topUpAmount,
+        channel: 'ONLINE',
+        status: 'PENDING',
+        onlineTransaction: { create: { provider: 'VNPAY', requestPayload: { orderId: order.id, amount: topUpAmount.toString(), purpose: 'WALLET_TOP_UP' } } },
+      },
+    })
+    return {
+      paymentId: payment.id,
+      orderId: order.id,
+      reference,
+      amount: asNumber(topUpAmount),
+      paymentUrl: createPaymentUrl({ reference, amount: asNumber(topUpAmount), ipAddress, orderInfo: `Nap vi Sportigo ${order.orderNumber}` }),
+    }
+  })
+}
+
+export async function searchCashOrders(query: string) {
+  const orders = await prisma.serviceOrder.findMany({
+    where: {
+      status: 'PENDING_PAYMENT',
+      AND: [
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+        { OR: [
+          { orderNumber: { contains: query, mode: 'insensitive' } },
+          { member: { memberCode: { contains: query, mode: 'insensitive' } } },
+          { member: { user: { displayName: { contains: query, mode: 'insensitive' } } } },
+        ] },
+      ],
+    },
+    include: { member: { include: { user: { select: { displayName: true, email: true } } } }, items: true, payments: true },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  })
+  return orders.map((order) => ({
+    id: order.id,
+    orderNumber: order.orderNumber,
+    memberName: order.member.user.displayName,
+    memberEmail: order.member.user.email,
+    memberCode: order.member.memberCode,
+    itemNames: order.items.map((item) => item.itemNameSnapshot),
+    finalAmount: asNumber(order.finalAmount),
+    remainingAmount: asNumber(calculateRemaining(order.finalAmount, order.payments)),
+    expiresAt: order.expiresAt,
+  }))
 }
 
 export async function processVnpayIpn(params: VnpayParams) {
@@ -145,6 +229,21 @@ export async function processVnpayIpn(params: VnpayParams) {
   })
   if (!processed) return { RspCode: '02', Message: 'Order already confirmed' }
   return { RspCode: '00', Message: 'Confirm Success' }
+}
+
+export async function processVnpayReturn(params: VnpayParams) {
+  if (!verifyVnpay(params)) return { valid: false, confirmed: false, paymentStatus: 'INVALID', responseCode: params.vnp_ResponseCode, transactionStatus: params.vnp_TransactionStatus, reference: params.vnp_TxnRef }
+  await processVnpayIpn(params)
+  const payment = params.vnp_TxnRef ? await prisma.payment.findUnique({ where: { reference: params.vnp_TxnRef }, select: { status: true, orderId: true } }) : null
+  return {
+    valid: true,
+    confirmed: payment?.status === 'SUCCESS',
+    paymentStatus: payment?.status ?? 'NOT_FOUND',
+    orderId: payment?.orderId,
+    responseCode: params.vnp_ResponseCode,
+    transactionStatus: params.vnp_TransactionStatus,
+    reference: params.vnp_TxnRef,
+  }
 }
 
 export async function payCash(orderId: number, actorId: number, receivedAmount: number, ipAddress?: string) {

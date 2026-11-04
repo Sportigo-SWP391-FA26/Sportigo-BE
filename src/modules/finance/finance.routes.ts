@@ -5,7 +5,10 @@ import * as controller from './finance.controller.js'
 export const financeRouter = Router()
 
 financeRouter.get('/payments/vnpay/return', controller.vnpayReturn)
+financeRouter.get('/payments/vnpay/verify', controller.verifyVnpayReturn)
 financeRouter.get('/payments/vnpay/ipn', controller.vnpayIpn)
+financeRouter.post('/wallet/top-ups/vnpay', authenticate, authorize('MEMBER'), controller.createWalletTopUp)
+financeRouter.get('/orders/cashier/search', authenticate, authorize('RECEPTIONIST'), controller.searchCashOrders)
 financeRouter.get('/orders/:id', authenticate, authorize('MEMBER', 'RECEPTIONIST', 'CENTER_MANAGER'), controller.getOrder)
 financeRouter.post('/orders/:id/promotion', authenticate, authorize('MEMBER'), controller.applyPromotion)
 financeRouter.post('/orders/:id/payments/vnpay', authenticate, authorize('MEMBER'), controller.createVnpayPayment)

@@ -3,6 +3,16 @@ import bookingService from './booking.service.js';
 import { getAuthUser } from '../../middleware/auth.js';
 
 export class BookingController {
+  async getMyRegistrations(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id: memberId } = getAuthUser(req);
+      const result = await bookingService.getMyRegistrations(memberId);
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+
   // GET /api/bookings/classes (FR-21)
   async getPublicClasses(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {

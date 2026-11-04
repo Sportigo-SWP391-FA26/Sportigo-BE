@@ -189,31 +189,31 @@ model AuditLog {
 }
 
 model Sport {
-  id             Int             @id @default(autoincrement())
-  name           String          @unique @db.VarChar(100)
-  description    String?
-  imageUrl       String?
-  isActive       Boolean         @default(true)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  classes        GroupClass[]
-  privateCourses PrivateCourse[]
-  workoutPlans   WorkoutPlan[]
-  coachSports    CoachSport[] // Quan hệ ngược về CoachSport
+  id                Int                @id @default(autoincrement())
+  name              String             @unique @db.VarChar(100)
+  description       String?
+  imageUrl          String?
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  classes           GroupClass[]
+  privateCourses    PrivateCourse[]
+  workoutPlans      WorkoutPlan[]
+  coachSports       CoachSport[] // Quan hệ ngược về CoachSport
   landingHeroSlides LandingHeroSlide[]
 }
 
 model LandingHeroSlide {
-  id          Int      @id @default(autoincrement())
-  title       String   @db.VarChar(160)
-  subtitle    String?
-  imageUrl    String
-  sportId     Int?
-  sortOrder   Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  sport       Sport?   @relation(fields: [sportId], references: [id], onDelete: SetNull)
+  id        Int      @id @default(autoincrement())
+  title     String   @db.VarChar(160)
+  subtitle  String?
+  imageUrl  String
+  sportId   Int?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sport     Sport?   @relation(fields: [sportId], references: [id], onDelete: SetNull)
 
   @@index([isActive, sortOrder])
 }
@@ -232,14 +232,14 @@ model LandingFacility {
 }
 
 model LandingPartner {
-  id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(120)
-  logoUrl   String
+  id         Int      @id @default(autoincrement())
+  name       String   @db.VarChar(120)
+  logoUrl    String
   websiteUrl String?
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([isActive, sortOrder])
 }
@@ -947,6 +947,7 @@ enum OrderStatus {
 enum OrderItemType {
   GROUP_CLASS
   PRIVATE_COURSE
+  WALLET_TOP_UP
 }
 
 enum DiscountType {
@@ -974,6 +975,7 @@ enum PaymentChannel {
 }
 
 enum WalletTransactionType {
+  TOP_UP_CREDIT
   REFUND_CREDIT
   ORDER_DEBIT
   ORDER_DEBIT_REVERSAL
