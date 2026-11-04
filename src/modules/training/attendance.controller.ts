@@ -1,6 +1,8 @@
 import type { RequestHandler } from 'express'
 import { getAuthUser } from '../../middleware/auth.js'
+import { toAttendanceWorkbook } from './attendance.export.js'
 import {
+  exportAttendanceQuerySchema,
   listAttendanceQuerySchema,
   markAttendanceSchema,
 } from './attendance.schema.js'
@@ -40,4 +42,18 @@ export const listAttendance: RequestHandler = async (request, response) => {
     query,
   )
   response.json(result)
+}
+
+export const exportAttendance: RequestHandler = async (request, response) => {
+  const query = exportAttendanceQuerySchema.parse(request.query)
+  const items = await attendanceService.exportAttendanceHistory(
+    getAuthUser(request),
+    query,
+  )
+  const file = await toAttendanceWorkbook(items)
+  const today = new Date().toISOString().slice(0, 10)
+  response
+    .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    .attachment(`sportigo-diem-danh-${today}.xlsx`)
+    .send(file)
 }

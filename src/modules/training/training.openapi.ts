@@ -329,6 +329,48 @@ export const trainingPaths = {
       },
     },
   },
+  '/attendance/export': {
+    get: {
+      tags: ['Training – Điểm danh'],
+      summary: 'Xuất Excel lịch sử điểm danh',
+      description:
+        'COACH chỉ xuất lớp mình phụ trách; CENTER_MANAGER xuất toàn trung tâm. Cùng bộ lọc với GET /attendance, ' +
+        'không phân trang, tối đa 5000 dòng (vượt thì 400 EXPORT_TOO_LARGE). File gồm 2 sheet: ' +
+        '"Chi tiết điểm danh" và "Tổng hợp theo học viên" (chuyên cần = (Có mặt + Muộn) / số buổi đã điểm danh).',
+      security,
+      parameters: [
+        queryParam('classId', integerId, 'Lọc theo lớp'),
+        queryParam('memberId', integerId, 'Lọc theo Member'),
+        queryParam('sessionId', integerId, 'Lọc theo buổi học'),
+        queryParam(
+          'status',
+          { type: 'string', enum: ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED'] },
+          'Trạng thái điểm danh',
+        ),
+        queryParam(
+          'from',
+          { type: 'string', format: 'date-time' },
+          'Buổi học bắt đầu từ thời điểm (ISO 8601)',
+        ),
+        queryParam(
+          'to',
+          { type: 'string', format: 'date-time' },
+          'Buổi học bắt đầu đến thời điểm (ISO 8601)',
+        ),
+      ],
+      responses: {
+        '200': {
+          description: 'File Excel sportigo-diem-danh-YYYY-MM-DD.xlsx',
+          content: {
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+              { schema: { type: 'string', format: 'binary' } },
+          },
+        },
+        ...authErrors,
+        '422': validationError,
+      },
+    },
+  },
   '/workout-plans': {
     get: {
       tags: ['Training – Giáo án'],

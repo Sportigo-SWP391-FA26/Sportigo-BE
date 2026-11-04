@@ -27,6 +27,7 @@ Tiền tố chung `/api`.
 | 47 | `PUT /class-sessions/:id/attendance` | COACH phụ trách lớp | Điểm danh hàng loạt, upsert, một transaction | BR-42, BR-43 |
 | 47 | `GET /class-sessions/:id/attendance` | COACH phụ trách lớp, CENTER_MANAGER | Học viên CONFIRMED kèm trạng thái điểm danh (`null` nếu chưa) | BR-42 |
 | 48 | `GET /attendance` | MEMBER, COACH, CENTER_MANAGER | Lịch sử điểm danh, lọc `classId, memberId, sessionId, status, from, to` | — |
+| 48 | `GET /attendance/export` | COACH (lớp mình phụ trách), CENTER_MANAGER | Xuất Excel lịch sử điểm danh, cùng bộ lọc với `GET /attendance`, tối đa 5000 dòng; 2 sheet: chi tiết và tổng hợp chuyên cần theo học viên | — |
 | 49 | `GET /workout-plans` | COACH, CENTER_MANAGER | Lọc `sportId, level, status, search` | — |
 | 49 | `POST /workout-plans` | COACH | Tạo giáo án (DRAFT) theo một môn đang hoạt động | BR-44 |
 | 49 | `GET /workout-plans/:id` | COACH, CENTER_MANAGER | Chi tiết kèm mục (tuần → buổi → thứ tự) | — |
@@ -145,7 +146,7 @@ Chạy `npm run db:seed` ngay trước buổi demo: lệnh này dời "buổi đ
 | FR | Endpoint | Code (`src/modules/training/`) | Test (`tests/training/`) | Commit code / test |
 |---|---|---|---|---|
 | FR-47 | `PUT`, `GET /class-sessions/:id/attendance` | `attendance.*` | `attendance.test.ts` (14 test) | `7d0d7bc` / `6322be4` |
-| FR-48 | `GET /attendance` | `attendance.*` | `attendance-history.test.ts` (9) | `2cd7cef` / `b3fb1ec` |
+| FR-48 | `GET /attendance`, `GET /attendance/export` | `attendance.*` | `attendance-history.test.ts` (12) | `2cd7cef` / `b3fb1ec` |
 | FR-49 | `/workout-plans`, `/:id`, `/:id/status` | `workout-plan.*` | `workout-plan.test.ts` (15) | `f90cc16` / `e7c97ea` |
 | FR-50 | `/workout-plans/:id/items…` | `workout-plan-item.*` | `workout-plan-item.test.ts` (13) | `f68f36c` / `10a87ac` |
 | FR-51 | `/private-enrollments/:id/plans` | `plan-assignment.*` | `plan-assignment.test.ts` (10) | `7c4e27c` / `7c5b3ff` |

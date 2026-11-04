@@ -39,18 +39,28 @@ export const markAttendanceSchema = z
 
 export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>
 
+const attendanceFilterShape = {
+  classId: idSchema.optional(),
+  memberId: idSchema.optional(),
+  sessionId: idSchema.optional(),
+  status: attendanceStatusSchema.optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+}
+
+const validRange = (query: { from?: Date; to?: Date }) =>
+  !query.from || !query.to || query.from <= query.to
+const rangeError = { message: 'from phải trước hoặc bằng to', path: ['to'] }
+
 export const listAttendanceQuerySchema = paginationSchema
-  .extend({
-    classId: idSchema.optional(),
-    memberId: idSchema.optional(),
-    sessionId: idSchema.optional(),
-    status: attendanceStatusSchema.optional(),
-    from: z.coerce.date().optional(),
-    to: z.coerce.date().optional(),
-  })
-  .refine((query) => !query.from || !query.to || query.from <= query.to, {
-    message: 'from phải trước hoặc bằng to',
-    path: ['to'],
-  })
+  .extend(attendanceFilterShape)
+  .refine(validRange, rangeError)
 
 export type ListAttendanceQuery = z.infer<typeof listAttendanceQuerySchema>
+
+// Xuất Excel: cùng bộ lọc với danh sách, không phân trang
+export const exportAttendanceQuerySchema = z
+  .object(attendanceFilterShape)
+  .refine(validRange, rangeError)
+
+export type ExportAttendanceQuery = z.infer<typeof exportAttendanceQuerySchema>
