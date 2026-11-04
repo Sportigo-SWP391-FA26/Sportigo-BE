@@ -25,7 +25,7 @@ function loadActiveCourses(sportId?: number) {
         include: {
           coach: {
             include: {
-              user: { select: { id: true, displayName: true } },
+              user: { select: { id: true, displayName: true, avatarUrl: true } },
               availabilities: { where: { status: 'AVAILABLE' } },
             },
           },
@@ -99,7 +99,7 @@ export class PrivateCourseService {
           include: {
             coach: {
               include: {
-                user: { select: { id: true, displayName: true } },
+                user: { select: { id: true, displayName: true, avatarUrl: true } },
                 availabilities: { where: { status: 'AVAILABLE' }, orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
               },
             },

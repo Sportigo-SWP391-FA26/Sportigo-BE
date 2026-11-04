@@ -34,7 +34,9 @@ function resolveDatabaseUrl() {
   }
   parsed.searchParams.set(
     'connection_limit',
-    isTest ? (process.env.TEST_DB_CONNECTION_LIMIT ?? '4') : (process.env.DB_CONNECTION_LIMIT ?? '8'),
+    // Local và Render dùng chung Supabase. Giới hạn vừa phải cho từng process
+    // tránh hai môi trường chiếm hết connection pool của dự án.
+    isTest ? (process.env.TEST_DB_CONNECTION_LIMIT ?? '3') : (process.env.DB_CONNECTION_LIMIT ?? '5'),
   )
   parsed.searchParams.set('pool_timeout', process.env.DB_POOL_TIMEOUT ?? '10')
   return parsed.toString()

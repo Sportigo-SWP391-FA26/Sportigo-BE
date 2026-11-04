@@ -1,4 +1,5 @@
 import cors from 'cors'
+import compression from 'compression'
 import express from 'express'
 import helmet from 'helmet'
 import swaggerUi from 'swagger-ui-express'
@@ -29,6 +30,9 @@ export function isOriginAllowed(origin: string, patterns = allowedOrigins) {
 }
 
 app.use(helmet())
+// Nén JSON/OpenAPI ở cả BE local và Render. Ảnh Cloudinary không đi qua BE nên
+// không bị nén lại hoặc tăng tải CPU không cần thiết.
+app.use(compression())
 app.use(
   cors({
     origin(origin, callback) {

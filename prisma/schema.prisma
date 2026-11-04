@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -19,37 +19,39 @@ model Role {
 }
 
 model User {
-  id                        Int                      @id @default(autoincrement())
-  email                     String                   @unique @db.VarChar(255)
-  phone                     String?                  @unique @db.VarChar(20)
-  passwordHash              String
-  displayName               String                   @db.VarChar(100)
-  avatarUrl                 String?
-  status                    UserStatus               @default(ACTIVE)
-  roleId                    Int
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
-  deletedAt                 DateTime?
-  emailVerifiedAt           DateTime?
-  auditLogs                 AuditLog[]
-  coach                     Coach?
-  emailVerificationTokens   EmailVerificationToken[]
-  member                    Member?
-  receptionist              Receptionist?
-  notifications             Notification[]
-  passwordResetTokens       PasswordResetToken[]
-  emailChangeRequests       EmailChangeRequest[]
-  collectedPayments         Payment[]                @relation("PaymentCollector")
-  paymentAdjustments        PaymentAdjustment[]
-  refreshTokens             RefreshToken[]
-  reviewedRefunds           RefundRequest[]
-  assignedByRequests        RequestAssignment[]      @relation("AssignedBy")
-  assignedRequests          RequestAssignment[]      @relation("AssignedTo")
-  scheduleChanges           ScheduleChange[]
-  supportMessages           SupportMessage[]
-  supportRequests           SupportRequest[]
-  role                      Role                     @relation(fields: [roleId], references: [id])
-  walletTransactionsCreated WalletTransaction[]      @relation("WalletTransactionCreator")
+  id                              Int                              @id @default(autoincrement())
+  email                           String                           @unique @db.VarChar(255)
+  phone                           String?                          @unique @db.VarChar(20)
+  passwordHash                    String
+  displayName                     String                           @db.VarChar(100)
+  avatarUrl                       String?
+  status                          UserStatus                       @default(ACTIVE)
+  roleId                          Int
+  createdAt                       DateTime                         @default(now())
+  updatedAt                       DateTime                         @updatedAt
+  deletedAt                       DateTime?
+  emailVerifiedAt                 DateTime?
+  auditLogs                       AuditLog[]
+  coach                           Coach?
+  emailVerificationTokens         EmailVerificationToken[]
+  member                          Member?
+  receptionist                    Receptionist?
+  notifications                   Notification[]
+  passwordResetTokens             PasswordResetToken[]
+  emailChangeRequests             EmailChangeRequest[]
+  collectedPayments               Payment[]                        @relation("PaymentCollector")
+  paymentAdjustments              PaymentAdjustment[]
+  refreshTokens                   RefreshToken[]
+  reviewedRefunds                 RefundRequest[]
+  assignedByRequests              RequestAssignment[]              @relation("AssignedBy")
+  assignedRequests                RequestAssignment[]              @relation("AssignedTo")
+  scheduleChanges                 ScheduleChange[]
+  reviewedAvailabilitySubmissions CoachAvailabilitySubmission[]    @relation("AvailabilitySubmissionReviewer")
+  reviewedAvailabilityChanges     CoachAvailabilityChangeRequest[] @relation("AvailabilityChangeReviewer")
+  supportMessages                 SupportMessage[]
+  supportRequests                 SupportRequest[]
+  role                            Role                             @relation(fields: [roleId], references: [id])
+  walletTransactionsCreated       WalletTransaction[]              @relation("WalletTransactionCreator")
 
   @@index([roleId, status])
   @@index([deletedAt])
@@ -125,14 +127,16 @@ model Member {
 }
 
 model Coach {
-  userId                         Int                       @id
-  coachCode                      String                    @unique @db.VarChar(30)
+  userId                         Int                              @id
+  coachCode                      String                           @unique @db.VarChar(30)
   bio                            String?
-  status                         CoachStatus               @default(ACTIVE)
-  hiredAt                        DateTime?                 @db.Date
-  user                           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                         CoachStatus                      @default(ACTIVE)
+  hiredAt                        DateTime?                        @db.Date
+  user                           User                             @relation(fields: [userId], references: [id], onDelete: Cascade)
   coachSports                    CoachSport[] // Bổ sung bảng năng lực chuyên môn (FR-14, FR-31)
   availabilities                 CoachAvailability[]
+  availabilitySubmissions        CoachAvailabilitySubmission[]
+  availabilityChangeRequests     CoachAvailabilityChangeRequest[]
   privateCourses                 CoachPrivateCourse[]
   classes                        GroupClass[]
   assignedWorkoutPlans           PlanPrivateEnrollment[]
@@ -421,17 +425,80 @@ model CoachPrivateCourse {
 }
 
 model CoachAvailability {
-  id            Int                @id @default(autoincrement())
+  id            Int                          @id @default(autoincrement())
   coachId       Int
   dayOfWeek     Int
-  startTime     DateTime           @db.Time(6)
-  endTime       DateTime           @db.Time(6)
-  effectiveFrom DateTime           @db.Date
-  effectiveTo   DateTime?          @db.Date
-  status        AvailabilityStatus @default(AVAILABLE)
-  coach         Coach              @relation(fields: [coachId], references: [userId], onDelete: Cascade)
+  startTime     DateTime                     @db.Time(6)
+  endTime       DateTime                     @db.Time(6)
+  effectiveFrom DateTime                     @db.Date
+  effectiveTo   DateTime?                    @db.Date
+  status        AvailabilityStatus           @default(AVAILABLE)
+  coach         Coach                        @relation(fields: [coachId], references: [userId], onDelete: Cascade)
+  selections    CoachAvailabilitySelection[]
 
   @@index([coachId, dayOfWeek, effectiveFrom])
+}
+
+model CoachAvailabilitySubmission {
+  id              Int                              @id @default(autoincrement())
+  coachId         Int
+  month           DateTime                         @db.Date
+  revision        Int                              @default(1)
+  status          AvailabilitySubmissionStatus     @default(DRAFT)
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  reviewedById    Int?
+  rejectionReason String?                          @db.VarChar(500)
+  copiedFromId    Int?
+  createdAt       DateTime                         @default(now())
+  updatedAt       DateTime                         @updatedAt
+  coach           Coach                            @relation(fields: [coachId], references: [userId], onDelete: Cascade)
+  reviewer        User?                            @relation("AvailabilitySubmissionReviewer", fields: [reviewedById], references: [id])
+  copiedFrom      CoachAvailabilitySubmission?     @relation("AvailabilitySubmissionCopy", fields: [copiedFromId], references: [id])
+  copies          CoachAvailabilitySubmission[]    @relation("AvailabilitySubmissionCopy")
+  selections      CoachAvailabilitySelection[]
+  changeRequests  CoachAvailabilityChangeRequest[]
+
+  @@unique([coachId, month])
+  @@index([month, status, submittedAt])
+}
+
+model CoachAvailabilitySelection {
+  id                     Int                         @id @default(autoincrement())
+  submissionId           Int
+  dayOfWeek              Int
+  shiftCode              String                      @db.VarChar(20)
+  isAssigned             Boolean                     @default(false)
+  approvedAvailabilityId Int?
+  createdAt              DateTime                    @default(now())
+  submission             CoachAvailabilitySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  approvedAvailability   CoachAvailability?          @relation(fields: [approvedAvailabilityId], references: [id], onDelete: SetNull)
+
+  @@unique([submissionId, dayOfWeek, shiftCode])
+  @@index([approvedAvailabilityId])
+}
+
+model CoachAvailabilityChangeRequest {
+  id              Int                         @id @default(autoincrement())
+  coachId         Int
+  submissionId    Int
+  oldDayOfWeek    Int
+  oldShiftCode    String                      @db.VarChar(20)
+  newDayOfWeek    Int
+  newShiftCode    String                      @db.VarChar(20)
+  reason          String                      @db.VarChar(500)
+  status          AvailabilityChangeStatus    @default(SUBMITTED)
+  submittedAt     DateTime                    @default(now())
+  reviewedAt      DateTime?
+  reviewedById    Int?
+  rejectionReason String?                     @db.VarChar(500)
+  affectedSummary Json?
+  coach           Coach                       @relation(fields: [coachId], references: [userId], onDelete: Cascade)
+  submission      CoachAvailabilitySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewer        User?                       @relation("AvailabilityChangeReviewer", fields: [reviewedById], references: [id])
+
+  @@index([coachId, status, submittedAt])
+  @@index([submissionId])
 }
 
 model PrivateCourseEnrollment {
@@ -891,6 +958,19 @@ enum CourseStatus {
 enum AvailabilityStatus {
   AVAILABLE
   UNAVAILABLE
+}
+
+enum AvailabilitySubmissionStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum AvailabilityChangeStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
 }
 
 enum EnrollmentStatus {

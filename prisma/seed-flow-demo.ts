@@ -241,8 +241,12 @@ async function main() {
       : await prisma.groupClass.create({ data })
     await prisma.classSession.deleteMany({ where: { classId: groupClass.id } })
     for (let week = 0; week < 6; week += 1) {
-      const startsAt = daysFromNow(input.sessionStartOffset + week * 7, input.hour)
-      await prisma.classSession.create({ data: { classId: groupClass.id, roomId: rooms[input.room].id, startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), status: startsAt < new Date() ? 'COMPLETED' : 'SCHEDULED', note: `Tuần ${week + 1}` } })
+      const firstSession = daysFromNow(input.sessionStartOffset + week * 7, input.hour)
+      const secondDayOffset = firstSession.getDay() >= 5 ? -3 : 3
+      for (const [sessionIndex, dayOffset] of [0, secondDayOffset].entries()) {
+        const startsAt = daysFromNow(input.sessionStartOffset + week * 7 + dayOffset, input.hour)
+        await prisma.classSession.create({ data: { classId: groupClass.id, roomId: rooms[input.room].id, startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), status: startsAt < new Date() ? 'COMPLETED' : 'SCHEDULED', note: `Slot ${week * 2 + sessionIndex + 1}` } })
+      }
     }
     classes.push(groupClass)
   }

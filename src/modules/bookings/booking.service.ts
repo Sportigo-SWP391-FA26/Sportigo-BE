@@ -116,7 +116,12 @@ export class BookingService {
       where: { id: classId, status: ClassStatus.OPEN },
       include: {
         sport: true,
-        coach: { include: { user: { select: { id: true, displayName: true, avatarUrl: true } } } },
+        coach: {
+          include: {
+            user: { select: { id: true, displayName: true, avatarUrl: true } },
+            coachSports: { include: { sport: { select: { id: true, name: true } } } },
+          },
+        },
         sessions: {
           include: { room: true },
           orderBy: { startsAt: 'asc' },

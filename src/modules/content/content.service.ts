@@ -164,7 +164,7 @@ async function loadMemberHome(userId: number) {
   const now = new Date()
   const end = new Date(now)
   end.setDate(end.getDate() + 7)
-  const [member, registrations, recommendations, notifications, payments] = await Promise.all([
+  const [member, registrations, recommendations, privateRecommendations, notifications, payments] = await Promise.all([
     prisma.member.findUnique({
       where: { userId },
       include: { user: { select: { id: true, displayName: true, avatarUrl: true } } },
@@ -185,6 +185,23 @@ async function loadMemberHome(userId: number) {
       take: 9, orderBy: { startDate: 'asc' },
       include: { sport: true, coach: { include: { user: true } }, sessions: { where: { startsAt: { gte: now }, status: 'SCHEDULED' }, orderBy: { startsAt: 'asc' }, take: 1, include: { room: true } }, _count: { select: { registrations: { where: { status: 'CONFIRMED' } } } } },
     }),
+    prisma.privateCourse.findMany({
+      where: {
+        status: 'ACTIVE',
+        coaches: { some: { isActive: true, coach: { status: 'ACTIVE', user: { status: 'ACTIVE' } } } },
+        enrollments: { none: { memberId: userId, status: { in: ['PENDING_PAYMENT', 'ACTIVE'] } } },
+      },
+      take: 6,
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        sport: { select: { id: true, name: true, imageUrl: true } },
+        coaches: {
+          where: { isActive: true, coach: { status: 'ACTIVE', user: { status: 'ACTIVE' } } },
+          take: 3,
+          include: { coach: { include: { user: { select: { id: true, displayName: true, avatarUrl: true } } } } },
+        },
+      },
+    }),
     prisma.notification.findMany({ where: { userId }, take: 5, orderBy: { createdAt: 'desc' } }),
     prisma.payment.findMany({ where: { order: { memberId: userId }, status: 'SUCCESS' }, take: 5, orderBy: { paidAt: 'desc' }, include: { order: { select: { orderNumber: true } } } }),
   ])
@@ -201,7 +218,7 @@ async function loadMemberHome(userId: number) {
     ...payments.map((item) => ({ id: `payment-${item.id}`, type: 'PAYMENT', title: 'Thanh toán thành công', description: `Đơn hàng ${item.order.orderNumber}`, occurredAt: item.paidAt ?? item.createdAt })),
   ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime()).slice(0, 5)
 
-  return { profile: member.user, nextSession: upcomingSessions[0] ?? null, weekSchedule: upcomingSessions, recommendations, activities }
+  return { profile: member.user, nextSession: upcomingSessions[0] ?? null, weekSchedule: upcomingSessions, recommendations, privateRecommendations, activities }
 }
 
 type MemberHomeResult = Awaited<ReturnType<typeof loadMemberHome>>

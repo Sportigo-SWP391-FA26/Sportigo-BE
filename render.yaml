@@ -5,7 +5,9 @@ services:
     plan: free
     region: singapore
     buildCommand: npm ci --include=dev && npx prisma generate && npm run build
-    startCommand: npx prisma migrate deploy && npm start
+    # Không tự chạy migration khi restart/deploy. Thay đổi schema phải được
+    # sao lưu và triển khai có kiểm soát bằng một thao tác riêng.
+    startCommand: npm start
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
@@ -13,6 +15,10 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: DB_CONNECTION_LIMIT
+        value: 5
+      - key: DB_POOL_TIMEOUT
+        value: 10
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
