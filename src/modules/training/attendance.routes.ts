@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { authenticate, authorize } from '../../middleware/auth.js'
 import {
+  exportAttendance,
   getSessionAttendance,
   listAttendance,
   markSessionAttendance,
@@ -28,4 +29,11 @@ attendanceRouter.get(
   authenticate,
   authorize('MEMBER', 'COACH', 'CENTER_MANAGER'),
   listAttendance,
+)
+// Xuất Excel lịch sử điểm danh theo bộ lọc đang chọn
+attendanceRouter.get(
+  '/export',
+  authenticate,
+  authorize('COACH', 'CENTER_MANAGER'),
+  exportAttendance,
 )

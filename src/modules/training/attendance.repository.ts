@@ -109,11 +109,10 @@ const historySelect = {
   },
 } as const
 
-export function findAttendanceHistory(
+function historyWhere(
   filter: AttendanceHistoryFilter,
-  page: { skip: number; take: number },
-) {
-  const where: Prisma.SessionAttendanceWhereInput = {
+): Prisma.SessionAttendanceWhereInput {
+  return {
     status: filter.status,
     classSessionId: filter.sessionId,
     registration: { memberId: filter.memberId },
@@ -123,6 +122,13 @@ export function findAttendanceHistory(
       groupClass: { coachId: filter.coachId },
     },
   }
+}
+
+export function findAttendanceHistory(
+  filter: AttendanceHistoryFilter,
+  page: { skip: number; take: number },
+) {
+  const where = historyWhere(filter)
   return prisma.$transaction([
     prisma.sessionAttendance.findMany({
       where,
@@ -132,4 +138,20 @@ export function findAttendanceHistory(
     }),
     prisma.sessionAttendance.count({ where }),
   ])
+}
+
+export function countAttendanceHistory(filter: AttendanceHistoryFilter) {
+  return prisma.sessionAttendance.count({ where: historyWhere(filter) })
+}
+
+// Xuất Excel: sắp theo buổi học tăng dần để đọc như sổ điểm danh
+export function findAttendanceForExport(filter: AttendanceHistoryFilter) {
+  return prisma.sessionAttendance.findMany({
+    where: historyWhere(filter),
+    orderBy: [
+      { classSession: { startsAt: 'asc' } },
+      { registration: { member: { memberCode: 'asc' } } },
+    ],
+    select: historySelect,
+  })
 }

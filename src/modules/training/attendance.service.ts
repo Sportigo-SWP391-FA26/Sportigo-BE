@@ -3,10 +3,13 @@ import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
 import type { AuthUser } from '../../middleware/auth.js'
 import type {
+  ExportAttendanceQuery,
   ListAttendanceQuery,
   MarkAttendanceInput,
 } from './attendance.schema.js'
 import {
+  countAttendanceHistory,
+  findAttendanceForExport,
   findAttendanceHistory,
   findConfirmedRoster,
   findRegistrationsByIds,
@@ -140,20 +143,47 @@ function toHistoryItem({
   }
 }
 
+// FR-48: Member chỉ xem của mình (bỏ qua memberId gửi lên),
+// Coach chỉ xem các lớp mình phụ trách, Manager lọc tự do.
+function scopeHistoryFilter(user: AuthUser, filters: ExportAttendanceQuery) {
+  return {
+    ...filters,
+    memberId: user.role === 'MEMBER' ? user.id : filters.memberId,
+    coachId: user.role === 'COACH' ? user.id : undefined,
+  }
+}
+
 export async function listAttendanceHistory(
   user: AuthUser,
   query: ListAttendanceQuery,
 ) {
   const { page, pageSize, ...filters } = query
   const [rows, total] = await findAttendanceHistory(
-    {
-      ...filters,
-      // FR-48: Member chỉ xem của mình (bỏ qua memberId gửi lên),
-      // Coach chỉ xem các lớp mình phụ trách, Manager lọc tự do.
-      memberId: user.role === 'MEMBER' ? user.id : filters.memberId,
-      coachId: user.role === 'COACH' ? user.id : undefined,
-    },
+    scopeHistoryFilter(user, filters),
     toSkipTake({ page, pageSize }),
   )
   return toPage(rows.map(toHistoryItem), total, { page, pageSize })
+}
+
+// Giới hạn số dòng một file để không giữ quá nhiều dữ liệu trong bộ nhớ khi dựng Excel
+export const MAX_EXPORT_ROWS = 5000
+
+export type AttendanceExportItem = ReturnType<typeof toHistoryItem>
+
+// Xuất báo cáo điểm danh, cùng phạm vi dữ liệu với FR-48 (Coach: lớp mình phụ trách; Manager: toàn trung tâm)
+export async function exportAttendanceHistory(
+  user: AuthUser,
+  query: ExportAttendanceQuery,
+) {
+  const filter = scopeHistoryFilter(user, query)
+  const total = await countAttendanceHistory(filter)
+  if (total > MAX_EXPORT_ROWS) {
+    throw new HttpError(
+      422,
+      `Có ${total} bản ghi, vượt giới hạn ${MAX_EXPORT_ROWS} dòng mỗi file. Hãy thu hẹp khoảng thời gian hoặc lọc theo lớp.`,
+      'EXPORT_TOO_LARGE',
+    )
+  }
+  const rows = await findAttendanceForExport(filter)
+  return rows.map(toHistoryItem)
 }

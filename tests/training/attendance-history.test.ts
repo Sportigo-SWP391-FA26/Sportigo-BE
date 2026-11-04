@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { app } from '../../src/app.js'
@@ -156,5 +157,69 @@ describe.skipIf(!hasTestDatabase)('FR-48 Lịch sử điểm danh', () => {
     const response = await list(receptionist.auth)
 
     expect(response.status).toBe(403)
+  })
+
+  // Đọc file .xlsx trả về thành mảng dòng (bỏ dòng tiêu đề)
+  const exportFile = (auth: string, query: Record<string, string | number> = {}) =>
+    request(app)
+      .get('/api/attendance/export')
+      .query(query)
+      .set('Authorization', auth)
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks: Buffer[] = []
+        response.on('data', (chunk: Buffer) => chunks.push(chunk))
+        response.on('end', () => callback(null, Buffer.concat(chunks)))
+      })
+
+  async function readSheet(file: Buffer, name: string) {
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(file)
+    const sheet = workbook.getWorksheet(name)!
+    const rows: unknown[][] = []
+    sheet.eachRow((row, index) => {
+      if (index > 1) rows.push((row.values as unknown[]).slice(1))
+    })
+    return rows
+  }
+
+  it('Xuất Excel: Coach chỉ nhận lượt điểm danh của lớp mình phụ trách, có sheet tổng hợp', async () => {
+    const response = await exportFile(s.coach.auth)
+
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('spreadsheetml')
+    expect(response.headers['content-disposition']).toMatch(/sportigo-diem-danh-.*\.xlsx/)
+
+    const detail = await readSheet(response.body, 'Chi tiết điểm danh')
+    // 3 lượt của lớp Coach phụ trách; lượt của lớp khác không có trong file
+    expect(detail).toHaveLength(3)
+    expect(detail.every((row) => row[2] === s.groupClass.name)).toBe(true)
+    expect(detail.map((row) => row[6]).sort()).toEqual(['Có mặt', 'Muộn', 'Vắng'])
+
+    const summary = await readSheet(response.body, 'Tổng hợp theo học viên')
+    const first = summary.find((row) => row[0] === `MEM-${s.members[0]!.id}`)!
+    // Học viên 1: 1 Có mặt + 1 Muộn trên 2 buổi → chuyên cần 100%
+    expect(first.slice(2)).toEqual([1, 1, 0, 0, 2, 1])
+  })
+
+  it('Xuất Excel: dùng cùng bộ lọc với danh sách (Manager lọc trạng thái)', async () => {
+    const response = await exportFile(s.manager.auth, { status: 'PRESENT' })
+
+    expect(response.status).toBe(200)
+    const detail = await readSheet(response.body, 'Chi tiết điểm danh')
+    // Manager thấy toàn trung tâm: 2 lượt Có mặt (lớp của Coach và lớp khác)
+    expect(detail).toHaveLength(2)
+    expect(detail.every((row) => row[6] === 'Có mặt')).toBe(true)
+  })
+
+  it('Xuất Excel / BR-06: Member không được xuất, from sau to trả 400', async () => {
+    const asMember = await exportFile(s.members[0]!.auth)
+    const badRange = await exportFile(s.manager.auth, {
+      from: '2026-10-10T00:00:00Z',
+      to: '2026-10-01T00:00:00Z',
+    })
+
+    expect(asMember.status).toBe(403)
+    expect(badRange.status).toBe(400)
   })
 })
