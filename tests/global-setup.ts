@@ -12,7 +12,10 @@ export default function setup() {
     return
   }
 
-  assertSafeTestDatabase(url)
+  assertSafeTestDatabase(url, {
+    productionUrl: process.env.DATABASE_URL,
+    nodeEnv: 'test',
+  })
   if (process.env.TEST_DATABASE_MIGRATIONS_ALREADY_APPLIED === 'true') {
     console.warn(
       '\n[test] Bỏ qua migrate deploy: schema test đã được migrate trước đó.\n',

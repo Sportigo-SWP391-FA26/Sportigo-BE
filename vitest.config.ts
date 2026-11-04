@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { defineConfig } from 'vitest/config'
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL
+const productionDatabaseUrl = process.env.DATABASE_URL
 const remoteTestDatabase = Boolean(testDatabaseUrl && !/localhost|127\.0\.0\.1/.test(testDatabaseUrl))
 
 export default defineConfig({
@@ -17,6 +18,12 @@ export default defineConfig({
     hookTimeout: remoteTestDatabase ? 90_000 : 30_000,
     // Integration test dùng chung một database test nên chạy tuần tự từng file
     fileParallelism: false,
-    env: testDatabaseUrl ? { DATABASE_URL: testDatabaseUrl } : {},
+    env: testDatabaseUrl
+      ? {
+          DATABASE_URL: testDatabaseUrl,
+          PRODUCTION_DATABASE_URL: productionDatabaseUrl,
+          NODE_ENV: 'test',
+        }
+      : { NODE_ENV: 'test' },
   },
 })
