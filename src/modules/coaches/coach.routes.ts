@@ -5,6 +5,7 @@ import coachController from './coach.controller.js';
 const router = Router();
 
 router.use(authenticate);
+router.get('/', authorize('CENTER_MANAGER', 'RECEPTIONIST'), coachController.listQualified);
 router.get('/:id/sports', authorize('CENTER_MANAGER', 'RECEPTIONIST', 'COACH', 'MEMBER'), coachController.listSports);
 router.post('/:id/sports', authorize('CENTER_MANAGER'), coachController.addSport);
 router.delete('/:id/sports/:sportId', authorize('CENTER_MANAGER'), coachController.removeSport);

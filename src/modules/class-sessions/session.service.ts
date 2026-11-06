@@ -16,6 +16,10 @@ function timeOnDate(date: Date, time: { hours: number; minutes: number }) {
   return result
 }
 
+function centerTimeOnDate(date: Date, time: string) {
+  return new Date(`${date.toISOString().slice(0, 10)}T${time}:00+07:00`)
+}
+
 function overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
   return startA < endB && endA > startB
 }
@@ -45,6 +49,22 @@ type WeeklyRecurrenceInput = {
   endTime: string
   effectiveFrom: string | Date
   effectiveTo: string | Date
+}
+
+type RecurringPatternInput = {
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  roomId: number
+}
+
+type RecurringScheduleInput = {
+  patterns?: RecurringPatternInput[]
+  effectiveFrom?: string | Date
+  effectiveTo?: string | Date
+  note?: string
+  roomId?: number
+  recurrence?: WeeklyRecurrenceInput
 }
 
 type PreparedSession = {
@@ -393,71 +413,113 @@ export class SessionService {
 
   async createRecurringSessions(
     classId: number,
-    input: { roomId: number; recurrence: WeeklyRecurrenceInput; note?: string },
+    input: RecurringScheduleInput,
   ) {
-    if (
-      !input ||
-      !Number.isSafeInteger(input.roomId) ||
-      input.roomId <= 0 ||
-      !input.recurrence ||
-      typeof input.recurrence !== 'object'
-    ) {
+    const { sessions } = await this.buildRecurringSessions(classId, input)
+    const preview = await this.previewPreparedSessions(classId, sessions)
+    if (!preview.canCreate) {
+      throw new HttpError(409, 'Lịch lặp có buổi bị xung đột hoặc nằm ngoài availability của Coach.', 'RECURRING_SCHEDULE_CONFLICT', {
+        conflicts: preview.occurrences.filter((item) => !item.valid),
+      })
+    }
+    return this.createSessions(classId, sessions)
+  }
+
+  async previewRecurringSessions(classId: number, input: RecurringScheduleInput) {
+    const { sessions } = await this.buildRecurringSessions(classId, input)
+    return this.previewPreparedSessions(classId, sessions)
+  }
+
+  private async buildRecurringSessions(classId: number, input: RecurringScheduleInput) {
+    if (!input || typeof input !== 'object') {
       throw new HttpError(400, 'Thông tin lịch lặp không hợp lệ.', 'INVALID_RECURRENCE')
     }
-    const { dayOfWeek, startTime, endTime } = input.recurrence
-    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
-      throw new HttpError(400, 'dayOfWeek phải nằm trong khoảng 0 đến 6.', 'INVALID_DAY_OF_WEEK')
+    const usesLegacyRecurrence = !input.patterns?.length && Boolean(input.recurrence && input.roomId)
+    const patterns: RecurringPatternInput[] = input.patterns?.length
+      ? input.patterns
+      : input.recurrence && input.roomId
+        ? [{
+            roomId: input.roomId,
+            dayOfWeek: input.recurrence.dayOfWeek,
+            startTime: input.recurrence.startTime,
+            endTime: input.recurrence.endTime,
+          }]
+        : []
+    const effectiveFromValue = input.effectiveFrom ?? input.recurrence?.effectiveFrom
+    const effectiveToValue = input.effectiveTo ?? input.recurrence?.effectiveTo
+    if (patterns.length === 0 || !effectiveFromValue || !effectiveToValue) {
+      throw new HttpError(400, 'Cần chọn ít nhất một ca và khoảng ngày áp dụng.', 'RECURRENCE_REQUIRED')
     }
-    const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/
-    if (!timePattern.test(startTime) || !timePattern.test(endTime)) {
-      throw new HttpError(400, 'Giờ học phải có định dạng HH:mm.', 'INVALID_SESSION_TIME')
-    }
-    if (startTime >= endTime) {
-      throw new HttpError(400, 'Thời gian kết thúc phải sau thời gian bắt đầu.', 'INVALID_TIME_RANGE')
-    }
-
-    const effectiveFrom = parseDateOnly(input.recurrence.effectiveFrom)
-    const effectiveTo = parseDateOnly(input.recurrence.effectiveTo)
+    const effectiveFrom = parseDateOnly(effectiveFromValue)
+    const effectiveTo = parseDateOnly(effectiveToValue)
     if (!effectiveFrom || !effectiveTo || effectiveFrom > effectiveTo) {
       throw new HttpError(400, 'Khoảng ngày lặp không hợp lệ.', 'INVALID_RECURRENCE_RANGE')
     }
-
     const groupClass = await prisma.groupClass.findUnique({ where: { id: classId } })
-    if (!groupClass) {
-      throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND')
-    }
+    if (!groupClass) throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND')
     if (effectiveFrom < dateOnly(groupClass.startDate) || effectiveTo > dateOnly(groupClass.endDate)) {
       throw new HttpError(409, 'Khoảng ngày lặp nằm ngoài thời hạn của lớp.', 'RECURRENCE_OUTSIDE_CLASS_DATES')
     }
 
-    const firstOccurrence = new Date(effectiveFrom)
-    firstOccurrence.setUTCDate(
-      firstOccurrence.getUTCDate() + (dayOfWeek - firstOccurrence.getUTCDay() + 7) % 7,
-    )
+    const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+    const signature = new Set<string>()
     const sessions: Omit<CreateSessionInput, 'classId'>[] = []
-    for (
-      const date = new Date(firstOccurrence);
-      date <= effectiveTo;
-      date.setUTCDate(date.getUTCDate() + 7)
-    ) {
-      sessions.push({
-        roomId: input.roomId,
-        startsAt: timeOnDate(date, {
-          hours: Number(startTime.slice(0, 2)),
-          minutes: Number(startTime.slice(3, 5)),
-        }),
-        endsAt: timeOnDate(date, {
-          hours: Number(endTime.slice(0, 2)),
-          minutes: Number(endTime.slice(3, 5)),
-        }),
-        note: input.note,
-      })
+    for (const pattern of patterns) {
+      if (!Number.isSafeInteger(pattern.roomId) || pattern.roomId <= 0) {
+        throw new HttpError(400, 'Phòng học không hợp lệ.', 'INVALID_ROOM_ID')
+      }
+      if (!Number.isInteger(pattern.dayOfWeek) || pattern.dayOfWeek < 0 || pattern.dayOfWeek > 6) {
+        throw new HttpError(400, 'dayOfWeek phải nằm trong khoảng 0 đến 6.', 'INVALID_DAY_OF_WEEK')
+      }
+      if (!timePattern.test(pattern.startTime) || !timePattern.test(pattern.endTime) || pattern.startTime >= pattern.endTime) {
+        throw new HttpError(400, 'Khung giờ học không hợp lệ.', 'INVALID_SESSION_TIME')
+      }
+      const key = `${pattern.dayOfWeek}:${pattern.startTime}:${pattern.endTime}:${pattern.roomId}`
+      if (signature.has(key)) throw new HttpError(409, 'Lịch lặp có ca bị trùng.', 'DUPLICATE_RECURRENCE_PATTERN')
+      signature.add(key)
+      const firstOccurrence = new Date(effectiveFrom)
+      firstOccurrence.setUTCDate(firstOccurrence.getUTCDate() + (pattern.dayOfWeek - firstOccurrence.getUTCDay() + 7) % 7)
+      for (const date = new Date(firstOccurrence); date <= effectiveTo; date.setUTCDate(date.getUTCDate() + 7)) {
+        sessions.push({
+          roomId: pattern.roomId,
+          startsAt: usesLegacyRecurrence
+            ? timeOnDate(date, { hours: Number(pattern.startTime.slice(0, 2)), minutes: Number(pattern.startTime.slice(3, 5)) })
+            : centerTimeOnDate(date, pattern.startTime),
+          endsAt: usesLegacyRecurrence
+            ? timeOnDate(date, { hours: Number(pattern.endTime.slice(0, 2)), minutes: Number(pattern.endTime.slice(3, 5)) })
+            : centerTimeOnDate(date, pattern.endTime),
+          note: input.note,
+        })
+      }
     }
-    if (sessions.length === 0) {
-      throw new HttpError(400, 'Khoảng ngày không chứa buổi học nào theo thứ đã chọn.', 'NO_RECURRENCE_OCCURRENCES')
-    }
+    if (sessions.length === 0) throw new HttpError(400, 'Khoảng ngày không chứa buổi học nào.', 'NO_RECURRENCE_OCCURRENCES')
+    sessions.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    return { sessions }
+  }
 
-    return this.createSessions(classId, sessions)
+  private async previewPreparedSessions(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[]) {
+    const occurrences: Array<{ startsAt: string; endsAt: string; roomId: number; valid: boolean; code?: string; message?: string }> = []
+    for (const session of sessions) {
+      try {
+        await this.prepareSession({ ...session, classId })
+        occurrences.push({ startsAt: new Date(session.startsAt).toISOString(), endsAt: new Date(session.endsAt).toISOString(), roomId: session.roomId, valid: true })
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error
+        occurrences.push({ startsAt: new Date(session.startsAt).toISOString(), endsAt: new Date(session.endsAt).toISOString(), roomId: session.roomId, valid: false, code: error.code, message: error.message })
+      }
+    }
+    for (let i = 0; i < sessions.length; i += 1) {
+      for (let j = i + 1; j < sessions.length; j += 1) {
+        const first = sessions[i]!
+        const second = sessions[j]!
+        if (new Date(first.startsAt) < new Date(second.endsAt) && new Date(first.endsAt) > new Date(second.startsAt)) {
+          for (const index of [i, j]) {
+            occurrences[index] = { ...occurrences[index]!, valid: false, code: 'SESSION_SCHEDULE_CONFLICT', message: 'Các ca đã chọn bị chồng lấn.' }
+          }
+        }
+      }
+    }
+    return { canCreate: occurrences.every((item) => item.valid), total: occurrences.length, conflicts: occurrences.filter((item) => !item.valid).length, occurrences }
   }
 
   async getClassSessions(classId: number) {

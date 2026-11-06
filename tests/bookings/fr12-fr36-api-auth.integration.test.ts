@@ -184,8 +184,9 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       data: {
         coachId: coach.id,
         dayOfWeek: firstDate.getUTCDay(),
-        startTime: new Date('1970-01-01T09:00:00.000Z'),
-        endTime: new Date('1970-01-01T12:00:00.000Z'),
+        // Legacy recurrence uses UTC instants; availability is stored as Sportigo local wall-clock time.
+        startTime: new Date('1970-01-01T17:00:00.000Z'),
+        endTime: new Date('1970-01-01T19:00:00.000Z'),
         effectiveFrom: availabilityFrom,
         effectiveTo: availabilityTo,
       },
@@ -400,7 +401,7 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       })
 
     expect(response.status).toBe(409)
-    expect(response.body.code).toBe('ROOM_SCHEDULE_CONFLICT')
+    expect(response.body.code).toBe('RECURRING_SCHEDULE_CONFLICT')
     expect(await prisma.classSession.count({ where: { classId: scenario.groupClass.id } })).toBe(1)
   })
 

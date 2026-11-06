@@ -542,6 +542,10 @@ export class BookingService {
           },
           data: { status: OrderStatus.CANCELLED },
         });
+        await tx.promotionReservation.updateMany({
+          where: { status: 'ACTIVE', order: { items: { some: { classRegistrationId: registrationId } } } },
+          data: { status: 'RELEASED' },
+        });
       }
 
       await waitlistService.offerNextInTransaction(tx, classId, now);
@@ -624,6 +628,10 @@ export class BookingService {
           items: { some: { classRegistrationId: { in: groupClass.registrations.map((item) => item.id) } } },
         },
         data: { status: OrderStatus.CANCELLED },
+      });
+      await tx.promotionReservation.updateMany({
+        where: { status: 'ACTIVE', order: { items: { some: { classRegistrationId: { in: groupClass.registrations.map((item) => item.id) } } } } },
+        data: { status: 'RELEASED' },
       });
       await notify(tx, {
         userIds: [

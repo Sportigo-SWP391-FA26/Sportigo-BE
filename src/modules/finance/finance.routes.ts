@@ -18,6 +18,7 @@ financeRouter.post('/orders/:id/pay', authenticate, authorize('MEMBER'), control
 financeRouter.get('/members/me/wallet', authenticate, authorize('MEMBER'), controller.getWallet)
 financeRouter.get('/payments', authenticate, authorize('MEMBER', 'RECEPTIONIST', 'CENTER_MANAGER'), controller.listPayments)
 financeRouter.post('/payments/:id/refund-requests', authenticate, authorize('MEMBER'), controller.requestRefund)
+financeRouter.post('/order-items/:id/refund-requests', authenticate, authorize('MEMBER'), controller.requestItemRefund)
 financeRouter.get('/refund-requests', authenticate, authorize('CENTER_MANAGER'), controller.listRefunds)
 financeRouter.patch('/refund-requests/:id/review', authenticate, authorize('CENTER_MANAGER'), controller.reviewRefund)
 financeRouter.post('/refund-requests/:id/complete', authenticate, authorize('CENTER_MANAGER'), controller.completeRefund)

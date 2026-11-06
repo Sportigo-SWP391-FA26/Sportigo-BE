@@ -32,12 +32,17 @@ export async function refundClassRegistrationToWallet(
   const order = await tx.serviceOrder.findFirst({
     where: { items: { some: { classRegistrationId: input.registrationId } } },
     include: {
+      items: { where: { classRegistrationId: input.registrationId }, include: { paymentAdjustments: { where: { type: 'REFUND' } } } },
       payments: { include: { adjustments: true } },
     },
   })
   if (!order || order.memberId !== input.memberId) {
     throw new HttpError(409, 'Không tìm thấy đơn hàng đã thanh toán của đăng ký lớp.', 'PAID_ORDER_NOT_FOUND')
   }
+  const orderItem = order.items[0]
+  if (!orderItem) throw new HttpError(409, 'Không tìm thấy dịch vụ cần hoàn trong đơn hàng.', 'ORDER_ITEM_NOT_FOUND')
+  const alreadyRefundedForItem = orderItem.paymentAdjustments.reduce((sum, adjustment) => sum.plus(adjustment.amount), money(0))
+  let itemRemaining = Prisma.Decimal.max(money(0), orderItem.finalAmount.minus(alreadyRefundedForItem))
 
   const refundablePayments = order.payments
     .filter((payment) => ['SUCCESS', 'PARTIALLY_REFUNDED'].includes(payment.status))
@@ -49,27 +54,31 @@ export async function refundClassRegistrationToWallet(
     })
     .filter(({ refundable }) => refundable.greaterThan(0))
 
-  const refundAmount = refundablePayments.reduce(
+  const refundAmount = Prisma.Decimal.min(itemRemaining, refundablePayments.reduce(
     (sum, item) => sum.plus(item.refundable),
     money(0),
-  )
+  ))
   if (refundAmount.lessThanOrEqualTo(0)) {
     throw new HttpError(409, 'Đơn hàng không còn số tiền có thể hoàn.', 'ORDER_NOT_REFUNDABLE')
   }
 
   for (const { payment, refundable } of refundablePayments) {
+    if (itemRemaining.lessThanOrEqualTo(0)) break
+    const allocation = Prisma.Decimal.min(itemRemaining, refundable)
     await tx.paymentAdjustment.create({
       data: {
         paymentId: payment.id,
+        orderItemId: orderItem.id,
         createdById: input.actorId,
         type: 'REFUND',
-        amount: refundable,
+        amount: allocation,
         reason: input.reason,
       },
     })
+    itemRemaining = itemRemaining.minus(allocation)
     await tx.payment.update({
       where: { id: payment.id },
-      data: { status: 'REFUNDED' },
+      data: { status: allocation.equals(refundable) ? 'REFUNDED' : 'PARTIALLY_REFUNDED' },
     })
   }
 
@@ -101,9 +110,10 @@ export async function refundClassRegistrationToWallet(
       description: input.reason,
     },
   })
+  const orderRefunded = order.items.length === 1 && refundAmount.greaterThanOrEqualTo(order.finalAmount)
   await tx.serviceOrder.update({
     where: { id: order.id },
-    data: { status: 'REFUNDED' },
+    data: { status: orderRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' },
   })
   await tx.auditLog.create({
     data: {

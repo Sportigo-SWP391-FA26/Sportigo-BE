@@ -12,6 +12,38 @@ type ScheduleExceptionWithRoom = {
 };
 
 export class CoachService {
+  async listQualifiedCoaches(sportId?: number) {
+    if (sportId !== undefined && (!Number.isSafeInteger(sportId) || sportId <= 0)) {
+      throw new HttpError(400, 'Môn thể thao không hợp lệ.', 'INVALID_SPORT_ID');
+    }
+
+    const coaches = await prisma.coach.findMany({
+      where: {
+        status: 'ACTIVE',
+        user: { status: 'ACTIVE' },
+        ...(sportId ? { coachSports: { some: { sportId } } } : {}),
+      },
+      include: {
+        user: { select: { id: true, displayName: true, avatarUrl: true } },
+        coachSports: {
+          include: { sport: { select: { id: true, name: true, isActive: true } } },
+          orderBy: { sportId: 'asc' },
+        },
+      },
+      orderBy: { user: { displayName: 'asc' } },
+    });
+
+    return coaches.map((coach) => ({
+      id: coach.userId,
+      displayName: coach.user.displayName,
+      avatarUrl: coach.user.avatarUrl,
+      coachCode: coach.coachCode,
+      bio: coach.bio,
+      status: coach.status,
+      sports: coach.coachSports.map(({ sport }) => sport),
+    }));
+  }
+
   async listCoachSports(coachId: number) {
     const coach = await prisma.coach.findUnique({
       where: { userId: coachId },
@@ -211,15 +243,21 @@ export class CoachService {
   }
 
   async isAvailableForSession(coachId: number, startsAt: Date, endsAt: Date) {
-    if (startsAt.toISOString().slice(0, 10) !== endsAt.toISOString().slice(0, 10)) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short',
+    });
+    const parts = (value: Date) => Object.fromEntries(formatter.formatToParts(value).map((part) => [part.type, part.value]));
+    const start = parts(startsAt);
+    const end = parts(endsAt);
+    const startDate = `${start.year}-${start.month}-${start.day}`;
+    const endDate = `${end.year}-${end.month}-${end.day}`;
+    if (startDate !== endDate) {
       return false;
     }
-    const sessionDate = new Date(Date.UTC(
-      startsAt.getUTCFullYear(),
-      startsAt.getUTCMonth(),
-      startsAt.getUTCDate(),
-    ));
-    const dayOfWeek = startsAt.getUTCDay();
+    const sessionDate = new Date(`${startDate}T00:00:00.000Z`);
+    const dayOfWeekMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const dayOfWeek = dayOfWeekMap[start.weekday!]!;
     const availabilities = await prisma.coachAvailability.findMany({
       where: {
         coachId,
@@ -229,8 +267,8 @@ export class CoachService {
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: sessionDate } }],
       },
     });
-    const timeStart = new Date(`1970-01-01T${startsAt.toISOString().slice(11, 19)}Z`);
-    const timeEnd = new Date(`1970-01-01T${endsAt.toISOString().slice(11, 19)}Z`);
+    const timeStart = new Date(`1970-01-01T${start.hour}:${start.minute}:00Z`);
+    const timeEnd = new Date(`1970-01-01T${end.hour}:${end.minute}:00Z`);
     return availabilities.some((slot) => {
       const availableStart = new Date(`1970-01-01T${slot.startTime.toISOString().slice(11, 19)}Z`);
       const availableEnd = new Date(`1970-01-01T${slot.endTime.toISOString().slice(11, 19)}Z`);

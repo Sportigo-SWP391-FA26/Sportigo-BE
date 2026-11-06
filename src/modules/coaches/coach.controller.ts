@@ -1,8 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import coachService from './coach.service.js';
 import { getAuthUser } from '../../middleware/auth.js';
+import { HttpError } from '../../lib/http-error.js';
 
 export class CoachController {
+  async listQualified(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (req.query.status !== undefined && req.query.status !== 'ACTIVE') {
+        throw new HttpError(400, 'Danh sách phân công chỉ hỗ trợ Coach đang hoạt động.', 'INVALID_COACH_STATUS');
+      }
+      const sportId = req.query.sportId === undefined ? undefined : Number(req.query.sportId);
+      const coaches = await coachService.listQualifiedCoaches(sportId);
+      res.status(200).json({ success: true, data: coaches });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+
   async listSports(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const sports = await coachService.listCoachSports(Number(req.params.id));

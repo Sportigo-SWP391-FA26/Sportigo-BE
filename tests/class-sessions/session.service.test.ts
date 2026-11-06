@@ -205,6 +205,31 @@ describe('FR-17–FR-20 Class session scheduling', () => {
     expect(prisma.classSession.create).toHaveBeenCalledTimes(4)
     expect(prisma.$transaction).toHaveBeenCalledOnce()
   })
+  it('previews multiple center-time patterns without persisting any session', async () => {
+    prisma.groupClass.findUnique.mockResolvedValue({
+      id: 1,
+      startDate: new Date('2026-11-01T00:00:00Z'),
+      endDate: new Date('2026-11-22T00:00:00Z'),
+      capacity: 10,
+      coachId: 10,
+    })
+    prisma.room.findUnique.mockResolvedValue({ id: 1, status: 'AVAILABLE', capacity: 20 })
+    prisma.classSession.findFirst.mockResolvedValue(null)
+
+    const preview = await service.previewRecurringSessions(1, {
+      patterns: [
+        { dayOfWeek: 0, startTime: '07:00', endTime: '08:30', roomId: 1 },
+        { dayOfWeek: 2, startTime: '09:00', endTime: '10:30', roomId: 1 },
+      ],
+      effectiveFrom: '2026-11-01',
+      effectiveTo: '2026-11-22',
+    })
+
+    expect(preview).toMatchObject({ canCreate: true, total: 7, conflicts: 0 })
+    expect(preview.occurrences[0]?.startsAt).toBe('2026-11-01T00:00:00.000Z')
+    expect(prisma.classSession.create).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
   it('validates later recurrence occurrences and writes none when a later week conflicts', async () => {
     prisma.groupClass.findUnique.mockResolvedValue({
       id: 1,
@@ -228,7 +253,7 @@ describe('FR-17–FR-20 Class session scheduling', () => {
         effectiveFrom: '2026-11-01',
         effectiveTo: '2026-11-15',
       },
-    })).rejects.toMatchObject({ status: 409, code: 'ROOM_SCHEDULE_CONFLICT' })
+    })).rejects.toMatchObject({ status: 409, code: 'RECURRING_SCHEDULE_CONFLICT' })
 
     expect(prisma.classSession.create).not.toHaveBeenCalled()
     expect(prisma.$transaction).not.toHaveBeenCalled()

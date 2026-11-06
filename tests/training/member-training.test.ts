@@ -9,6 +9,7 @@ import {
   createEnrollment,
   createMember,
   createPrivateCourse,
+  createRoom,
   createSport,
   createWorkoutPlan,
   resetDatabase,
@@ -46,6 +47,7 @@ describe.skipIf(!hasTestDatabase)('FR-53 Giáo án & tiến độ của tôi', (
     await resetDatabase()
     const sport = await createSport()
     const course = await createPrivateCourse({ sportId: sport.id })
+    const room = await createRoom()
     coach = await createCoach()
     memberA = await createMember()
     memberB = await createMember()
@@ -85,20 +87,33 @@ describe.skipIf(!hasTestDatabase)('FR-53 Giáo án & tiến độ của tôi', (
     ).id
     ids.assignmentOfB = (await assign(enrollmentB.id, planB.id)).id
 
-    const assess = (memberId: number, enrollmentId: number, daysAgo: number) =>
-      prisma.progressAssessment.create({
+    const makeSchedule = (enrollmentId: number, dayOfWeek: number) => prisma.privateCourseSchedule.create({ data: {
+      enrollmentId, roomId: room.id, dayOfWeek,
+      startTime: new Date('1970-01-01T09:00:00.000Z'), endTime: new Date('1970-01-01T10:30:00.000Z'),
+      effectiveFrom: new Date('2026-01-01T12:00:00.000Z'), effectiveTo: new Date('2027-01-01T12:00:00.000Z'),
+    } })
+    const [scheduleA, scheduleB] = await Promise.all([makeSchedule(enrollmentA.id, 2), makeSchedule(enrollmentB.id, 3)])
+
+    const assess = async (memberId: number, enrollmentId: number, scheduleId: number, daysAgo: number) => {
+      const sessionDate = new Date(Date.now() - daysAgo * DAY)
+      const attendance = await prisma.privateCourseAttendance.create({ data: {
+        scheduleId, sessionDate, startsAt: sessionDate, endsAt: new Date(sessionDate.getTime() + 90 * 60 * 1000), markedById: coach.id,
+      } })
+      return prisma.progressAssessment.create({
         data: {
           memberId,
           coachId: coach.id,
           privateEnrollmentId: enrollmentId,
+          privateCourseAttendanceId: attendance.id,
           assessmentDate: new Date(Date.now() - daysAgo * DAY),
           coachComment: 'Nhận xét',
           metrics: { speed: 6 },
         },
       })
-    ids.olderAssessment = (await assess(memberA.id, enrollmentA.id, 10)).id
-    ids.newerAssessment = (await assess(memberA.id, enrollmentA.id, 2)).id
-    ids.assessmentOfB = (await assess(memberB.id, enrollmentB.id, 1)).id
+    }
+    ids.olderAssessment = (await assess(memberA.id, enrollmentA.id, scheduleA.id, 10)).id
+    ids.newerAssessment = (await assess(memberA.id, enrollmentA.id, scheduleA.id, 2)).id
+    ids.assessmentOfB = (await assess(memberB.id, enrollmentB.id, scheduleB.id, 1)).id
   })
 
   afterAll(async () => {

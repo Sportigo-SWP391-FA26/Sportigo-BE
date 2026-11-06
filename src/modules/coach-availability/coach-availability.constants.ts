@@ -1,5 +1,14 @@
 export const AVAILABILITY_TIME_ZONE = 'Asia/Ho_Chi_Minh'
 
+export const AVAILABILITY_RULES = {
+  minimumShifts: 20,
+  minimumDays: 5,
+  minimumPerSelectedDay: 2,
+  maximumPerDay: 4,
+  submitDeadlineDay: 25,
+  resubmitDeadlineDay: 28,
+} as const
+
 export const AVAILABILITY_SHIFTS = [
   { code: 'S1', startTime: '07:00', endTime: '08:30' },
   { code: 'S2', startTime: '09:00', endTime: '10:30' },

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { prisma } = vi.hoisted(() => ({ prisma: {
-  coach: { findUnique: vi.fn() },
+  coach: { findUnique: vi.fn(), findMany: vi.fn() },
   coachAvailability: { findMany: vi.fn(), create: vi.fn() },
   classSession: { findMany: vi.fn() },
   privateCourseSchedule: { findMany: vi.fn() },
@@ -51,14 +51,32 @@ describe('FR-14 Coach availability', () => {
     }]).mockResolvedValueOnce([])
     await expect(service.isAvailableForSession(
       7,
-      new Date('2026-10-06T09:30:00Z'),
-      new Date('2026-10-06T10:30:00Z'),
+      new Date('2026-10-06T02:30:00Z'),
+      new Date('2026-10-06T03:30:00Z'),
     )).resolves.toBe(true)
     await expect(service.isAvailableForSession(
       7,
-      new Date('2026-11-03T09:30:00Z'),
-      new Date('2026-11-03T10:30:00Z'),
+      new Date('2026-11-03T02:30:00Z'),
+      new Date('2026-11-03T03:30:00Z'),
     )).resolves.toBe(false)
+  })
+  it('lists only active coaches qualified for the selected sport', async () => {
+    prisma.coach.findMany.mockResolvedValue([{
+      userId: 7,
+      coachCode: 'COA-07',
+      bio: null,
+      status: 'ACTIVE',
+      user: { displayName: 'Coach An', avatarUrl: null },
+      coachSports: [{ sport: { id: 2, name: 'Cầu lông', isActive: true } }],
+    }])
+    await expect(service.listQualifiedCoaches(2)).resolves.toEqual([expect.objectContaining({
+      id: 7,
+      displayName: 'Coach An',
+      sports: [expect.objectContaining({ id: 2 })],
+    })])
+    expect(prisma.coach.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: 'ACTIVE', user: { status: 'ACTIVE' }, coachSports: { some: { sportId: 2 } } },
+    }))
   })
   it('lists availability in weekday and start-time order', async () => {
     prisma.coachAvailability.findMany.mockResolvedValue([])

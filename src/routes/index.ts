@@ -24,6 +24,8 @@ import reportRoutes from '../modules/reports/report.routes.js'
 import { homeDataRouter, landingContentRouter, publicContentRouter } from '../modules/content/content.routes.js'
 import { uploadRouter } from '../modules/uploads/upload.routes.js'
 import { availabilityChangeRequestRouter, availabilitySubmissionRouter, coachAvailabilitySelfRouter } from '../modules/coach-availability/coach-availability.routes.js'
+import { assessmentMetricRouter } from '../modules/training/assessment-metric.routes.js'
+import { coachAssessmentRouter } from '../modules/training/progress-assessment.routes.js'
 
 export const apiRouter = Router()
 
@@ -46,6 +48,7 @@ apiRouter.use('/members', membersRouter)
 // Coach's members (FR-11); phải đứng trước '/coaches' để "me" không bị coi là id coach
 apiRouter.use('/coaches/me/members', coachMembersRouter)
 apiRouter.use('/coaches/me/sessions', coachSessionsRouter)
+apiRouter.use('/coaches/me', coachAssessmentRouter)
 apiRouter.use('/coaches/me', coachAvailabilitySelfRouter)
 apiRouter.use('/coach-availability-submissions', availabilitySubmissionRouter)
 apiRouter.use('/coach-availability-change-requests', availabilityChangeRequestRouter)
@@ -62,6 +65,7 @@ apiRouter.use(financeRouter)
 
 // Sports center management
 apiRouter.use('/sports', sportRoutes)
+apiRouter.use('/sports/:sportId/assessment-metrics', assessmentMetricRouter)
 apiRouter.use('/rooms', roomRoutes)
 apiRouter.use('/coaches', coachRoutes)
 

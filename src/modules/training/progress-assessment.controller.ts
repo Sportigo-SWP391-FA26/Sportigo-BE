@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express'
 import { getAuthUser } from '../../middleware/auth.js'
 import {
   createAssessmentSchema,
+  assessableSessionsQuerySchema,
   listAssessmentsQuerySchema,
 } from './progress-assessment.schema.js'
 import * as assessmentService from './progress-assessment.service.js'
@@ -22,4 +23,9 @@ export const listAssessments: RequestHandler = async (request, response) => {
     query,
   )
   response.json(result)
+}
+
+export const listAssessableSessions: RequestHandler = async (request, response) => {
+  const { memberId } = assessableSessionsQuerySchema.parse(request.query)
+  response.json(await assessmentService.listAssessableSessions(getAuthUser(request), memberId))
 }

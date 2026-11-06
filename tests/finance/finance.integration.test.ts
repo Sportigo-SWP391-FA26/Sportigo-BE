@@ -108,8 +108,32 @@ describe.skipIf(!hasTestDatabase)('FR-37–46, FR-57–60 Finance integration', 
     expect(applied.status).toBe(200)
     expect(Number(applied.body.discountAmount)).toBe(150_000)
     expect(Number(applied.body.finalAmount)).toBe(850_000)
+    expect(await prisma.promotionUsage.count({ where: { orderId: first.order.id } })).toBe(0)
+    expect(await prisma.promotionReservation.findUnique({ where: { orderId: first.order.id } })).toMatchObject({ status: 'ACTIVE' })
     expect(overLimit.status).toBe(409)
     expect(overLimit.body.code).toBe('PROMOTION_USAGE_LIMIT')
+
+    const receptionist = await createReceptionist()
+    const paid = await request(app).post(`/api/orders/${first.order.id}/payments/cash`).set('Authorization', receptionist.auth).send({ amount: 850_000 })
+    expect(paid.status).toBe(201)
+    expect(await prisma.promotionUsage.count({ where: { orderId: first.order.id } })).toBe(1)
+    expect(await prisma.promotionReservation.findUnique({ where: { orderId: first.order.id } })).toMatchObject({ status: 'CONSUMED' })
+  })
+
+  it('chỉ công khai Promotion đang hoạt động cho Member nhưng Manager xem được toàn bộ', async () => {
+    const member = await createMember()
+    const manager = await createManager()
+    const now = Date.now()
+    await prisma.promotion.createMany({ data: [
+      { code: 'PUBLIC10', name: 'Public', discountType: 'PERCENTAGE', discountValue: 10, isPublic: true, startAt: new Date(now - 60_000), endAt: new Date(now + 60_000), status: 'ACTIVE' },
+      { code: 'INTERNAL10', name: 'Internal', discountType: 'PERCENTAGE', discountValue: 10, isPublic: false, startAt: new Date(now - 60_000), endAt: new Date(now + 60_000), status: 'ACTIVE' },
+      { code: 'DRAFT10', name: 'Draft', discountType: 'PERCENTAGE', discountValue: 10, isPublic: true, startAt: new Date(now - 60_000), endAt: new Date(now + 60_000), status: 'DRAFT' },
+      { code: 'FUTURE10', name: 'Future', discountType: 'PERCENTAGE', discountValue: 10, isPublic: true, startAt: new Date(now + 86_400_000), endAt: new Date(now + 172_800_000), status: 'ACTIVE' },
+    ] })
+    const publicList = await request(app).get('/api/promotions').set('Authorization', member.auth)
+    const managerList = await request(app).get('/api/promotions').set('Authorization', manager.auth)
+    expect(publicList.body.map((item: { code: string }) => item.code)).toEqual(['PUBLIC10'])
+    expect(managerList.body.map((item: { code: string }) => item.code)).toEqual(expect.arrayContaining(['PUBLIC10', 'INTERNAL10', 'DRAFT10', 'FUTURE10']))
   })
 
   it('xử lý VNPay IPN có chữ ký đúng và idempotent khi callback lặp', async () => {
@@ -292,5 +316,43 @@ describe.skipIf(!hasTestDatabase)('FR-37–46, FR-57–60 Finance integration', 
     expect(pdf.headers['content-type']).toContain('application/pdf')
     expect(audit.body.items.some((item: { action: string }) => item.action === 'COMPLETE_REFUND_TO_WALLET')).toBe(true)
     expect(forbiddenAudit.status).toBe(403)
+  })
+
+  it('hoàn riêng một OrderItem và phân bổ qua nhiều Payment mà không ảnh hưởng dịch vụ còn lại', async () => {
+    const member = await createMember()
+    const manager = await createManager()
+    const sport = await createSport()
+    const coach = await createCoach()
+    const firstClass = await createGroupClass({ sportId: sport.id, coachId: coach.id })
+    const secondClass = await createGroupClass({ sportId: sport.id, coachId: coach.id })
+    const firstRegistration = await createRegistration({ memberId: member.id, classId: firstClass.id, status: 'CANCELLED' })
+    const secondRegistration = await createRegistration({ memberId: member.id, classId: secondClass.id, status: 'CONFIRMED' })
+    const order = await prisma.serviceOrder.create({
+      data: {
+        memberId: member.id, orderNumber: `MULTI-${Date.now()}`, originalAmount: 1_000_000, finalAmount: 1_000_000, status: 'PAID', paidAt: new Date(),
+        items: { create: [
+          { classRegistrationId: firstRegistration.id, itemType: 'GROUP_CLASS', itemNameSnapshot: 'Lớp cần hoàn', unitPrice: 400_000, finalAmount: 400_000 },
+          { classRegistrationId: secondRegistration.id, itemType: 'GROUP_CLASS', itemNameSnapshot: 'Lớp tiếp tục học', unitPrice: 600_000, finalAmount: 600_000 },
+        ] },
+      },
+      include: { items: true },
+    })
+    const walletMethod = await prisma.paymentMethod.create({ data: { code: `WALLET-${Date.now()}`, name: 'Ví', isOnline: false } })
+    const onlineMethod = await prisma.paymentMethod.create({ data: { code: `VNPAY-${Date.now()}`, name: 'VNPay', isOnline: true } })
+    const firstPayment = await prisma.payment.create({ data: { orderId: order.id, paymentMethodId: walletMethod.id, reference: `WAL-${Date.now()}`, amount: 300_000, channel: 'WALLET', status: 'SUCCESS', paidAt: new Date(Date.now() - 1000) } })
+    const secondPayment = await prisma.payment.create({ data: { orderId: order.id, paymentMethodId: onlineMethod.id, reference: `VNP-${Date.now()}`, amount: 700_000, channel: 'ONLINE', status: 'SUCCESS', paidAt: new Date() } })
+
+    const requested = await request(app).post(`/api/order-items/${order.items[0]!.id}/refund-requests`).set('Authorization', member.auth).send({ requestedAmount: 400_000, reason: 'Hủy riêng lớp đầu tiên đúng chính sách' })
+    await request(app).patch(`/api/refund-requests/${requested.body.id}/review`).set('Authorization', manager.auth).send({ decision: 'APPROVE', approvedAmount: 400_000, note: 'Đủ điều kiện hoàn theo dịch vụ' })
+    const completed = await request(app).post(`/api/refund-requests/${requested.body.id}/complete`).set('Authorization', manager.auth)
+
+    expect(completed.status).toBe(200)
+    const allocations = await prisma.paymentAdjustment.findMany({ where: { refundRequestId: requested.body.id }, orderBy: { id: 'asc' }, select: { paymentId: true, orderItemId: true, amount: true } })
+    expect(allocations.map((item) => ({ ...item, amount: Number(item.amount) }))).toEqual([
+      { paymentId: firstPayment.id, orderItemId: order.items[0]!.id, amount: 300_000 },
+      { paymentId: secondPayment.id, orderItemId: order.items[0]!.id, amount: 100_000 },
+    ])
+    expect(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({ status: 'PARTIALLY_REFUNDED' })
+    expect(await prisma.classRegistration.findUniqueOrThrow({ where: { id: secondRegistration.id } })).toMatchObject({ status: 'CONFIRMED' })
   })
 })

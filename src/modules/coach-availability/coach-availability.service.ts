@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js'
 import { audit } from '../../lib/audit.js'
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 import { sendAvailabilityEmail } from './coach-availability.mail.js'
-import { AVAILABILITY_SHIFTS, shiftByCode } from './coach-availability.constants.js'
+import { AVAILABILITY_RULES, AVAILABILITY_SHIFTS, shiftByCode } from './coach-availability.constants.js'
 import { validateAvailabilitySelections, type AvailabilitySelectionInput } from './coach-availability.rules.js'
 
 type SelectionInput = AvailabilitySelectionInput
@@ -164,7 +164,7 @@ export async function getMyCalendar(coachId: number, monthInput: string) {
     timeZone: 'Asia/Ho_Chi_Minh',
     shifts: AVAILABILITY_SHIFTS,
     submission: { ...submission, selections },
-    rules: { minimumShifts: 10, minimumDays: 5, minimumPerSelectedDay: 2, maximumPerDay: 4, submitDeadlineDay: 25, resubmitDeadlineDay: 28 },
+    rules: AVAILABILITY_RULES,
   }
 }
 

@@ -13,8 +13,26 @@ type AssignmentRow = Awaited<
 >[number]
 
 function toPlanAssignment({ assignedBy, enrollment, ...rest }: AssignmentRow) {
+  const completedItems = rest.completedItems.map((completion) => ({
+    workoutPlanItemId: completion.workoutPlanItemId,
+    completedAt: completion.completedAt,
+    session: {
+      id: completion.privateCourseAttendance.id,
+      sessionDate: toDateOnly(completion.privateCourseAttendance.sessionDate),
+      startsAt: completion.privateCourseAttendance.startsAt,
+      endsAt: completion.privateCourseAttendance.endsAt,
+    },
+    completedBy: toCoachRef(completion.completedBy),
+  }))
+  const totalItems = rest.workoutPlan.items.length
   return {
     ...rest,
+    completedItems,
+    progress: {
+      totalItems,
+      completedItems: completedItems.length,
+      percentage: totalItems === 0 ? 0 : Math.round((completedItems.length / totalItems) * 100),
+    },
     assignedBy: toCoachRef(assignedBy),
     enrollment: {
       id: enrollment.id,

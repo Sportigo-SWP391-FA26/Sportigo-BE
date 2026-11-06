@@ -22,6 +22,7 @@ const { prisma, refundClassRegistrationToWallet, offerNextInTransaction } = vi.h
     privateCourseSchedule: { findMany: vi.fn() },
     member: { findUnique: vi.fn() },
     serviceOrder: { create: vi.fn(), updateMany: vi.fn() },
+    promotionReservation: { updateMany: vi.fn() },
     orderItem: { create: vi.fn() },
     classWaitlist: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     wallet: { create: vi.fn(), update: vi.fn(), upsert: vi.fn() },

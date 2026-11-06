@@ -3,6 +3,7 @@ import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js'
 import { markAttendanceSchema } from './attendance.schema.js'
 import { assignPlanSchema } from './plan-assignment.schema.js'
 import { createAssessmentSchema } from './progress-assessment.schema.js'
+import { metricDefinitionSchema, metricDefinitionUpdateSchema } from './assessment-metric.schema.js'
 import { BR_MESSAGES } from './training.common.js'
 import {
   createItemSchema,
@@ -667,16 +668,15 @@ export const trainingPaths = {
       tags: ['Training – Đánh giá tiến độ'],
       summary: 'FR-52: Coach ghi đánh giá tiến độ cho học viên mình phụ trách',
       description:
-        'Gửi đúng một ngữ cảnh: classRegistrationId (registration CONFIRMED thuộc lớp Coach phụ trách) ' +
-        'hoặc privateEnrollmentId (enrollment ACTIVE/COMPLETED của Coach). Ngữ cảnh phải thuộc memberId. ' +
-        'assessmentDate (YYYY-MM-DD) không được ở tương lai theo giờ trung tâm.',
+        'Bắt buộc gửi đúng một classSessionId hoặc privateCourseAttendanceId. Backend suy ra Coach, Member, môn, registration/enrollment và assessmentDate theo Asia/Ho_Chi_Minh. ' +
+        'Lớp nhóm chỉ đánh giá PRESENT/LATE. metricValues phải dùng danh mục chỉ số đang hoạt động của đúng môn. Với khóa 1-1 có thể gửi completedWorkoutPlanItemIds; toàn bộ dữ liệu được lưu trong một transaction.',
       security,
       requestBody: jsonBody(createAssessmentSchema, {
         memberId: 12,
-        privateEnrollmentId: 15,
-        assessmentDate: '2026-10-10',
+        privateCourseAttendanceId: 42,
+        completedWorkoutPlanItemIds: [101, 102],
         coachComment: 'Kỹ thuật thở tiến bộ rõ, cần tăng sức bền.',
-        metrics: { speed: 7, technique: 8 },
+        metricValues: [{ definitionId: 10, value: 82 }, { definitionId: 11, value: 75 }],
         score: 8.5,
         recommendation: 'Bơi thêm 2 buổi sức bền mỗi tuần',
         nextAssessmentDate: '2026-11-10',
@@ -705,6 +705,20 @@ export const trainingPaths = {
         }),
       },
     },
+  },
+  '/coaches/me/assessable-sessions': {
+    get: {
+      tags: ['Training – Đánh giá tiến độ'], summary: 'Các buổi Coach được phép đánh giá', security,
+      parameters: [queryParam('memberId', integerId, 'Member cần đánh giá')],
+      responses: { '200': ok('Buổi hợp lệ kèm metric và mục giáo án chưa hoàn thành', []), ...authErrors, '422': validationError },
+    },
+  },
+  '/sports/{sportId}/assessment-metrics': {
+    get: { tags: ['Training – Chỉ số đánh giá'], summary: 'Danh mục chỉ số theo môn', security, parameters: [pathId('Mã bộ môn', 'sportId')], responses: { '200': ok('Danh mục chỉ số', []), ...authErrors } },
+    post: { tags: ['Training – Chỉ số đánh giá'], summary: 'Center Manager tạo chỉ số', security, parameters: [pathId('Mã bộ môn', 'sportId')], requestBody: jsonBody(metricDefinitionSchema, { code: 'technique', name: 'Kỹ thuật', unit: 'điểm', minValue: 0, maxValue: 100, direction: 'HIGHER_IS_BETTER', isRequired: true, isActive: true, displayOrder: 1 }), responses: { '201': ok('Đã tạo chỉ số', {}), ...authErrors, '422': validationError } },
+  },
+  '/sports/{sportId}/assessment-metrics/{id}': {
+    patch: { tags: ['Training – Chỉ số đánh giá'], summary: 'Center Manager cập nhật/vô hiệu hóa chỉ số', security, parameters: [pathId('Mã bộ môn', 'sportId'), pathId('Mã chỉ số')], requestBody: jsonBody(metricDefinitionUpdateSchema, { isActive: false }), responses: { '200': ok('Đã cập nhật chỉ số', {}), ...authErrors, '422': validationError } },
   },
   '/members/me/training': {
     get: {

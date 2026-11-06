@@ -18,6 +18,11 @@ router.get(
   sessionController.getClassSessions,
 );
 router.post(
+  '/:id/sessions/recurring/preview',
+  authorize('CENTER_MANAGER'),
+  sessionController.previewRecurringSessions,
+);
+router.post(
   '/:id/sessions/recurring',
   authorize('CENTER_MANAGER'),
   sessionController.createRecurringSessions,

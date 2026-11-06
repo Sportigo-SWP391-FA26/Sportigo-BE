@@ -4,6 +4,9 @@ import { HttpError } from '../../lib/http-error.js'
 import { prisma } from '../../lib/prisma.js'
 import { FORBIDDEN_MESSAGE } from '../../middleware/auth.js'
 
+export const CENTER_TIME_ZONE = 'Asia/Ho_Chi_Minh'
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
 // Nguyên văn cột "Exception / Error Message" trong backlog-and-rules.md
 export const BR_MESSAGES = {
   BR42: 'Học viên chưa đăng ký hợp lệ cho buổi học này.',
@@ -55,6 +58,16 @@ export function isUniqueViolation(error: unknown) {
 // Cột @db.Date: trả "YYYY-MM-DD" thay vì timestamp nửa đêm UTC
 export function toDateOnly(date: Date | null) {
   return date ? date.toISOString().slice(0, 10) : null
+}
+
+export function toCenterDateOnly(date: Date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: CENTER_TIME_ZONE }).format(date)
+}
+
+export function parseDateOnly(value: string) {
+  if (!DATE_ONLY.test(value)) throw new HttpError(400, 'Ngày không hợp lệ', 'INVALID_DATE')
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(Date.UTC(year!, month! - 1, day!, 12))
 }
 
 export const memberRefSelect = {

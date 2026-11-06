@@ -23,6 +23,7 @@ describe('finance request validation', () => {
 
   it('parses report and audit filters', () => {
     expect(revenueReportSchema.parse({ channel: 'WALLET', itemType: 'GROUP_CLASS' }).channel).toBe('WALLET')
+    expect(revenueReportSchema.safeParse({ from: '2026-11-10', to: '2026-11-01' }).success).toBe(false)
     expect(classReportSchema.parse({ sportId: '2' }).sportId).toBe(2)
     expect(auditListSchema.parse({ actorId: '3', action: 'REFUND' }).actorId).toBe(3)
   })

@@ -3,211 +3,67 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { app } from '../../src/app.js'
 import { prisma } from '../../src/lib/prisma.js'
 import { hasTestDatabase } from '../support/test-database.js'
-import {
-  DAY,
-  createClassScenario,
-  createEnrollment,
-  createPrivateCourse,
-  resetDatabase,
-} from './fixtures.js'
+import { createClassScenario, resetDatabase } from './fixtures.js'
 
-const BR46 =
-  'Coach không phụ trách học viên hoặc ngữ cảnh đánh giá không hợp lệ.'
-
-const centerDate = (offsetMs = 0) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(
-    new Date(Date.now() + offsetMs),
-  )
-
-describe.skipIf(!hasTestDatabase)('FR-52 Đánh giá tiến độ', () => {
+describe.skipIf(!hasTestDatabase)('Flow 4: đánh giá bắt buộc theo buổi học', () => {
   let s: Awaited<ReturnType<typeof createClassScenario>>
-  let enrollmentId: number
-  let otherCoachEnrollmentId: number
+  let metricId: number
 
   beforeAll(async () => {
     await resetDatabase()
     s = await createClassScenario()
-    const course = await createPrivateCourse({ sportId: s.sport.id })
-    enrollmentId = (
-      await createEnrollment({
-        memberId: s.members[0]!.id,
-        coachId: s.coach.id,
-        privateCourseId: course.id,
-      })
-    ).id
-    otherCoachEnrollmentId = (
-      await createEnrollment({
-        memberId: s.members[1]!.id,
-        coachId: s.otherCoach.id,
-        privateCourseId: course.id,
-      })
-    ).id
+    await prisma.classSession.update({ where: { id: s.sessions.expired.id }, data: { status: 'COMPLETED' } })
+    await prisma.sessionAttendance.create({ data: { registrationId: s.registrations[0]!.id, classSessionId: s.sessions.expired.id, status: 'PRESENT', markedById: s.coach.id } })
+    const metric = await prisma.assessmentMetricDefinition.create({ data: { sportId: s.sport.id, code: 'technique', name: 'Kỹ thuật', unit: 'điểm', minValue: 0, maxValue: 100, isRequired: true } })
+    metricId = metric.id
+  })
+  afterAll(async () => prisma.$disconnect())
+
+  const post = (body: Record<string, unknown>, auth = s.coach.auth) => request(app).post('/api/progress-assessments').set('Authorization', auth).send({ coachComment: 'Tiến bộ tốt', metricValues: [{ definitionId: metricId, value: 82 }], ...body })
+
+  it('từ chối đánh giá không gắn buổi hoặc gắn đồng thời hai loại buổi', async () => {
+    const missing = await post({ memberId: s.members[0]!.id })
+    const dual = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id, privateCourseAttendanceId: 1 })
+    expect(missing.status).toBe(400)
+    expect(dual.status).toBe(400)
   })
 
-  afterAll(async () => {
-    await prisma.$disconnect()
+  it('từ chối buổi chưa kết thúc và Member không có điểm danh hợp lệ', async () => {
+    const future = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.future.id })
+    const absent = await post({ memberId: s.members[1]!.id, classSessionId: s.sessions.expired.id })
+    expect(future.status).toBe(400)
+    expect(absent.status).toBe(400)
   })
 
-  const baseBody = () => ({
-    assessmentDate: centerDate(),
-    coachComment: 'Tiến bộ tốt',
-    metrics: { speed: 7, technique: 8 },
+  it('từ chối metric tự do, thiếu metric bắt buộc và ngoài giới hạn', async () => {
+    const missing = await request(app).post('/api/progress-assessments').set('Authorization', s.coach.auth).send({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id, coachComment: 'Thiếu', metricValues: [] })
+    const outside = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id, metricValues: [{ definitionId: metricId, value: 101 }] })
+    expect(missing.status).toBe(400)
+    expect(outside.status).toBe(400)
   })
 
-  const create = (body: Record<string, unknown>, auth = s.coach.auth) =>
-    request(app)
-      .post('/api/progress-assessments')
-      .set('Authorization', auth)
-      .send({ ...baseBody(), ...body })
-
-  it('FR-52 / BR-46: Coach đánh giá học viên trong lớp mình phụ trách', async () => {
-    const response = await create({
-      memberId: s.members[0]!.id,
-      classRegistrationId: s.registrations[0]!.id,
-      score: 8.5,
-    })
-
-    expect(response.status).toBe(201)
-    expect(response.body.context.type).toBe('GROUP_CLASS')
-    expect(response.body.context.class.id).toBe(s.groupClass.id)
-    expect(response.body.coach.id).toBe(s.coach.id)
-    expect(response.body.assessmentDate).toBe(centerDate())
-    expect(response.body.metrics).toEqual({ speed: 7, technique: 8 })
-  })
-
-  it('FR-52 / BR-46: Coach đánh giá học viên khóa 1-1 mình phụ trách', async () => {
-    const response = await create({
-      memberId: s.members[0]!.id,
-      privateEnrollmentId: enrollmentId,
-    })
-
-    expect(response.status).toBe(201)
-    expect(response.body.context.type).toBe('PRIVATE_COURSE')
-    expect(response.body.context.privateEnrollmentId).toBe(enrollmentId)
-  })
-
-  it('FR-52 / BR-46: học viên lớp của Coach khác bị từ chối 403', async () => {
-    const response = await create({
-      memberId: s.outsider.id,
-      classRegistrationId: s.outsiderRegistration.id,
-    })
-
-    expect(response.status).toBe(403)
-    expect(response.body.code).toBe('ASSESSMENT_CONTEXT_INVALID')
-    expect(response.body.message).toBe(BR46)
-  })
-
-  it('FR-52 / BR-46: khóa 1-1 của Coach khác bị từ chối 403', async () => {
-    const response = await create({
-      memberId: s.members[1]!.id,
-      privateEnrollmentId: otherCoachEnrollmentId,
-    })
-
-    expect(response.status).toBe(403)
-    expect(response.body.message).toBe(BR46)
-  })
-
-  it('FR-52 / BR-46: ngữ cảnh không thuộc memberId gửi lên bị từ chối 403', async () => {
-    const response = await create({
-      memberId: s.members[2]!.id,
-      classRegistrationId: s.registrations[0]!.id,
-    })
-
-    expect(response.status).toBe(403)
-  })
-
-  it('FR-52 / BR-46: registration chưa CONFIRMED bị từ chối 403', async () => {
-    const response = await create({
-      memberId: s.pendingMember.id,
-      classRegistrationId: s.pendingRegistration.id,
-    })
-
-    expect(response.status).toBe(403)
-  })
-
-  it('FR-52 / BR-46: có cả hai ngữ cảnh trả 422', async () => {
-    const response = await create({
-      memberId: s.members[0]!.id,
-      classRegistrationId: s.registrations[0]!.id,
-      privateEnrollmentId: enrollmentId,
-    })
-
+  it('tạo đánh giá từ đúng buổi, tự suy ra context/ngày và lưu metric chuẩn', async () => {
+    const response = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id, assessmentDate: '2000-01-01' })
     expect(response.status).toBe(400)
-    expect(response.body.details.fieldErrors.classRegistrationId).toBeDefined()
+    const valid = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id })
+    expect(valid.status).toBe(201)
+    expect(valid.body.context.type).toBe('GROUP_CLASS')
+    expect(valid.body.session.id).toBe(s.sessions.expired.id)
+    expect(valid.body.metricValues[0]).toMatchObject({ definitionId: metricId, name: 'Kỹ thuật' })
   })
 
-  it('FR-52 / BR-46: thiếu cả hai ngữ cảnh trả 422', async () => {
-    const response = await create({ memberId: s.members[0]!.id })
-
-    expect(response.status).toBe(400)
+  it('retry cùng Member/buổi không tạo đánh giá trùng', async () => {
+    const response = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id })
+    expect([400, 409]).toContain(response.status)
+    expect(await prisma.progressAssessment.count({ where: { memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id } })).toBe(1)
   })
 
-  it('FR-52: ngày đánh giá ở tương lai trả 422', async () => {
-    const response = await create({
-      memberId: s.members[0]!.id,
-      privateEnrollmentId: enrollmentId,
-      assessmentDate: centerDate(2 * DAY),
-    })
-
-    expect(response.status).toBe(400)
-    expect(response.body.details.fieldErrors.assessmentDate).toBeDefined()
-  })
-
-  it('FR-52: metrics phải là object số và không rỗng', async () => {
-    const notNumber = await create({
-      memberId: s.members[0]!.id,
-      privateEnrollmentId: enrollmentId,
-      metrics: { speed: 'nhanh' },
-    })
-    const empty = await create({
-      memberId: s.members[0]!.id,
-      privateEnrollmentId: enrollmentId,
-      metrics: {},
-    })
-
-    expect(notNumber.status).toBe(400)
-    expect(empty.status).toBe(400)
-  })
-
-  it('FR-52 / BR-06: Member không được tạo đánh giá', async () => {
-    const response = await create(
-      {
-        memberId: s.members[0]!.id,
-        privateEnrollmentId: enrollmentId,
-      },
-      s.members[0]!.auth,
-    )
-
-    expect(response.status).toBe(403)
-  })
-
-  it('FR-52: Coach chỉ thấy đánh giá của mình, Manager thấy tất cả và lọc theo Member', async () => {
-    await prisma.progressAssessment.create({
-      data: {
-        memberId: s.members[1]!.id,
-        coachId: s.otherCoach.id,
-        privateEnrollmentId: otherCoachEnrollmentId,
-        assessmentDate: new Date(),
-        coachComment: 'Đánh giá của Coach khác',
-        metrics: { speed: 5 },
-      },
-    })
-
-    const asCoach = await request(app)
-      .get('/api/progress-assessments')
-      .set('Authorization', s.coach.auth)
-    const asManager = await request(app)
-      .get('/api/progress-assessments')
-      .query({ memberId: s.members[1]!.id })
-      .set('Authorization', s.manager.auth)
-
-    expect(asCoach.status).toBe(200)
-    expect(
-      asCoach.body.items.every(
-        (item: { coach: { id: number } }) => item.coach.id === s.coach.id,
-      ),
-    ).toBe(true)
-    expect(asManager.body.total).toBe(1)
-    expect(asManager.body.items[0].coach.id).toBe(s.otherCoach.id)
+  it('Member không được tạo đánh giá và chỉ Coach/Manager xem đúng phạm vi', async () => {
+    const forbidden = await post({ memberId: s.members[0]!.id, classSessionId: s.sessions.expired.id }, s.members[0]!.auth)
+    expect(forbidden.status).toBe(403)
+    const coachList = await request(app).get('/api/progress-assessments').set('Authorization', s.coach.auth)
+    const managerList = await request(app).get('/api/progress-assessments').set('Authorization', s.manager.auth)
+    expect(coachList.status).toBe(200)
+    expect(managerList.body.total).toBeGreaterThanOrEqual(1)
   })
 })

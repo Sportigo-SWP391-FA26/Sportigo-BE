@@ -22,6 +22,8 @@ describe('automatic class cancellation refund', () => {
     tx.serviceOrder.findFirst.mockResolvedValue({
       id: 20,
       memberId: 2,
+      finalAmount: decimal(400),
+      items: [{ id: 40, finalAmount: decimal(400), paymentAdjustments: [] }],
       payments: [
         { id: 31, status: 'SUCCESS', amount: decimal(100), adjustments: [] },
         { id: 32, status: 'PARTIALLY_REFUNDED', amount: decimal(350), adjustments: [{ type: 'REFUND', amount: decimal(50) }] },

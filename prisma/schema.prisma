@@ -108,22 +108,23 @@ model RefreshToken {
 }
 
 model Member {
-  userId             Int                       @id
-  memberCode         String                    @unique @db.VarChar(30)
-  trainingGoal       String?                   @db.VarChar(500)
-  dateOfBirth        DateTime?                 @db.Date
-  gender             String?                   @db.VarChar(20)
-  emergencyContact   String?                   @db.VarChar(100)
-  joinedAt           DateTime                  @default(now())
-  registrations      ClassRegistration[]
-  waitlists          ClassWaitlist[]
-  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  privateEnrollments PrivateCourseEnrollment[]
-  assessments        ProgressAssessment[]
-  promotionUsages    PromotionUsage[]
-  refundRequests     RefundRequest[]
-  orders             ServiceOrder[]
-  wallet             Wallet?
+  userId                Int                       @id
+  memberCode            String                    @unique @db.VarChar(30)
+  trainingGoal          String?                   @db.VarChar(500)
+  dateOfBirth           DateTime?                 @db.Date
+  gender                String?                   @db.VarChar(20)
+  emergencyContact      String?                   @db.VarChar(100)
+  joinedAt              DateTime                  @default(now())
+  registrations         ClassRegistration[]
+  waitlists             ClassWaitlist[]
+  user                  User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  privateEnrollments    PrivateCourseEnrollment[]
+  assessments           ProgressAssessment[]
+  promotionUsages       PromotionUsage[]
+  promotionReservations PromotionReservation[]
+  refundRequests        RefundRequest[]
+  orders                ServiceOrder[]
+  wallet                Wallet?
 }
 
 model Coach {
@@ -145,6 +146,7 @@ model Coach {
   markedAttendances              SessionAttendance[]
   createdWorkoutPlans            WorkoutPlan[]
   markedPrivateCourseAttendances PrivateCourseAttendance[]
+  completedWorkoutPlanItems      WorkoutPlanItemCompletion[]
 }
 
 // Hồ sơ nhân sự lễ tân, giữ mã nhân sự giống coachCode của Coach (FR-07)
@@ -194,16 +196,17 @@ model AuditLog {
 }
 
 model Sport {
-  id                Int                @id @default(autoincrement())
-  name              String             @unique @db.VarChar(100)
+  id                Int                          @id @default(autoincrement())
+  name              String                       @unique @db.VarChar(100)
   description       String?
   imageUrl          String?
-  isActive          Boolean            @default(true)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  isActive          Boolean                      @default(true)
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
   classes           GroupClass[]
   privateCourses    PrivateCourse[]
   workoutPlans      WorkoutPlan[]
+  assessmentMetrics AssessmentMetricDefinition[]
   coachSports       CoachSport[] // Quan hệ ngược về CoachSport
   landingHeroSlides LandingHeroSlide[]
 }
@@ -309,19 +312,20 @@ model Room {
 }
 
 model ClassSession {
-  id          Int                 @id @default(autoincrement())
+  id          Int                  @id @default(autoincrement())
   classId     Int
   roomId      Int
   startsAt    DateTime
   endsAt      DateTime
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
   note        String?
-  status      SessionStatus       @default(SCHEDULED)
-  groupClass  GroupClass          @relation(fields: [classId], references: [id], onDelete: Cascade)
-  room        Room                @relation(fields: [roomId], references: [id])
+  status      SessionStatus        @default(SCHEDULED)
+  groupClass  GroupClass           @relation(fields: [classId], references: [id], onDelete: Cascade)
+  room        Room                 @relation(fields: [roomId], references: [id])
   changes     ScheduleChange[]
   attendances SessionAttendance[]
+  assessments ProgressAssessment[]
 
   @@index([classId, startsAt])
   @@index([roomId, startsAt, endsAt])
@@ -562,15 +566,17 @@ model PrivateCourseScheduleException {
 }
 
 model PrivateCourseAttendance {
-  id          Int                   @id @default(autoincrement())
-  scheduleId  Int
-  sessionDate DateTime              @db.Date
-  startsAt    DateTime
-  endsAt      DateTime
-  completedAt DateTime              @default(now())
-  markedById  Int
-  schedule    PrivateCourseSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-  markedBy    Coach                 @relation(fields: [markedById], references: [userId])
+  id                 Int                         @id @default(autoincrement())
+  scheduleId         Int
+  sessionDate        DateTime                    @db.Date
+  startsAt           DateTime
+  endsAt             DateTime
+  completedAt        DateTime                    @default(now())
+  markedById         Int
+  schedule           PrivateCourseSchedule       @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  markedBy           Coach                       @relation(fields: [markedById], references: [userId])
+  assessments        ProgressAssessment[]
+  completedPlanItems WorkoutPlanItemCompletion[]
 
   @@unique([scheduleId, sessionDate])
   @@index([markedById, completedAt])
@@ -625,24 +631,25 @@ model RequestAssignment {
 }
 
 model ServiceOrder {
-  id             Int             @id @default(autoincrement())
-  memberId       Int
-  promotionId    Int?
-  orderNumber    String          @unique @db.VarChar(40)
-  originalAmount Decimal         @db.Decimal(12, 2)
-  discountAmount Decimal         @default(0) @db.Decimal(12, 2)
-  finalAmount    Decimal         @db.Decimal(12, 2)
-  status         OrderStatus     @default(CART)
-  expiresAt      DateTime?
-  paidAt         DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  invoice        Invoice?
-  items          OrderItem[]
-  payments       Payment[]
-  promotionUsage PromotionUsage?
-  member         Member          @relation(fields: [memberId], references: [userId])
-  promotion      Promotion?      @relation(fields: [promotionId], references: [id])
+  id                   Int                   @id @default(autoincrement())
+  memberId             Int
+  promotionId          Int?
+  orderNumber          String                @unique @db.VarChar(40)
+  originalAmount       Decimal               @db.Decimal(12, 2)
+  discountAmount       Decimal               @default(0) @db.Decimal(12, 2)
+  finalAmount          Decimal               @db.Decimal(12, 2)
+  status               OrderStatus           @default(CART)
+  expiresAt            DateTime?
+  paidAt               DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  invoice              Invoice?
+  items                OrderItem[]
+  payments             Payment[]
+  promotionUsage       PromotionUsage?
+  promotionReservation PromotionReservation?
+  member               Member                @relation(fields: [memberId], references: [userId])
+  promotion            Promotion?            @relation(fields: [promotionId], references: [id])
 
   @@index([memberId, status, createdAt])
 }
@@ -661,28 +668,49 @@ model OrderItem {
   classRegistration   ClassRegistration?       @relation(fields: [classRegistrationId], references: [id])
   order               ServiceOrder             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   privateEnrollment   PrivateCourseEnrollment? @relation(fields: [privateEnrollmentId], references: [id])
+  paymentAdjustments  PaymentAdjustment[]
+  refundRequests      RefundRequest[]
 
   @@index([orderId])
 }
 
 model Promotion {
-  id              Int              @id @default(autoincrement())
-  code            String           @unique @db.VarChar(50)
-  name            String           @db.VarChar(160)
+  id              Int                    @id @default(autoincrement())
+  code            String                 @unique @db.VarChar(50)
+  name            String                 @db.VarChar(160)
   discountType    DiscountType
-  discountValue   Decimal          @db.Decimal(12, 2)
-  maxDiscount     Decimal?         @db.Decimal(12, 2)
-  minOrderAmount  Decimal          @default(0) @db.Decimal(12, 2)
-  applicableType  PromoScope       @default(ALL)
+  discountValue   Decimal                @db.Decimal(12, 2)
+  maxDiscount     Decimal?               @db.Decimal(12, 2)
+  minOrderAmount  Decimal                @default(0) @db.Decimal(12, 2)
+  applicableType  PromoScope             @default(ALL)
   startAt         DateTime
   endAt           DateTime
   totalUsageLimit Int?
   perMemberLimit  Int?
-  status          PromotionStatus  @default(DRAFT)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  isPublic        Boolean                @default(false)
+  status          PromotionStatus        @default(DRAFT)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   usages          PromotionUsage[]
+  reservations    PromotionReservation[]
   orders          ServiceOrder[]
+}
+
+model PromotionReservation {
+  id          Int                        @id @default(autoincrement())
+  promotionId Int
+  memberId    Int
+  orderId     Int                        @unique
+  status      PromotionReservationStatus @default(ACTIVE)
+  expiresAt   DateTime
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  promotion   Promotion                  @relation(fields: [promotionId], references: [id])
+  member      Member                     @relation(fields: [memberId], references: [userId])
+  order       ServiceOrder               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([promotionId, status, expiresAt])
+  @@index([promotionId, memberId, status, expiresAt])
 }
 
 model PromotionUsage {
@@ -782,40 +810,47 @@ model WalletTransaction {
 }
 
 model PaymentAdjustment {
-  id            Int            @id @default(autoincrement())
-  paymentId     Int
-  createdById   Int
-  type          AdjustmentType
-  amount        Decimal        @db.Decimal(12, 2)
-  reason        String
-  createdAt     DateTime       @default(now())
-  createdBy     User           @relation(fields: [createdById], references: [id])
-  payment       Payment        @relation(fields: [paymentId], references: [id])
-  refundRequest RefundRequest?
+  id              Int            @id @default(autoincrement())
+  paymentId       Int
+  orderItemId     Int?
+  refundRequestId Int?
+  createdById     Int
+  type            AdjustmentType
+  amount          Decimal        @db.Decimal(12, 2)
+  reason          String
+  createdAt       DateTime       @default(now())
+  createdBy       User           @relation(fields: [createdById], references: [id])
+  payment         Payment        @relation(fields: [paymentId], references: [id])
+  orderItem       OrderItem?     @relation(fields: [orderItemId], references: [id])
+  refundRequest   RefundRequest? @relation(fields: [refundRequestId], references: [id])
 
   @@index([paymentId, createdAt])
+  @@index([orderItemId, createdAt])
+  @@index([refundRequestId])
 }
 
 model RefundRequest {
-  id              Int                @id @default(autoincrement())
-  paymentId       Int
+  id              Int                 @id @default(autoincrement())
+  paymentId       Int?
+  orderItemId     Int
   memberId        Int
   reviewedById    Int?
-  adjustmentId    Int?               @unique
-  requestedAmount Decimal            @db.Decimal(12, 2)
+  requestedAmount Decimal             @db.Decimal(12, 2)
   reason          String
-  status          RefundStatus       @default(REQUESTED)
-  requestedAt     DateTime           @default(now())
+  status          RefundStatus        @default(REQUESTED)
+  requestedAt     DateTime            @default(now())
   reviewedAt      DateTime?
   reviewNote      String?
   completedAt     DateTime?
-  approvedAmount  Decimal?           @db.Decimal(12, 2)
-  adjustment      PaymentAdjustment? @relation(fields: [adjustmentId], references: [id])
-  member          Member             @relation(fields: [memberId], references: [userId])
-  payment         Payment            @relation(fields: [paymentId], references: [id])
-  reviewedBy      User?              @relation(fields: [reviewedById], references: [id])
+  approvedAmount  Decimal?            @db.Decimal(12, 2)
+  adjustments     PaymentAdjustment[]
+  orderItem       OrderItem           @relation(fields: [orderItemId], references: [id])
+  member          Member              @relation(fields: [memberId], references: [userId])
+  payment         Payment?            @relation(fields: [paymentId], references: [id])
+  reviewedBy      User?               @relation(fields: [reviewedById], references: [id])
 
   @@index([paymentId, status])
+  @@index([orderItemId, status])
   @@index([memberId, status])
 }
 
@@ -839,58 +874,117 @@ model WorkoutPlan {
 }
 
 model WorkoutPlanItem {
-  id              Int         @id @default(autoincrement())
+  id              Int                         @id @default(autoincrement())
   workoutPlanId   Int
   weekNumber      Int
   sessionNumber   Int
   itemOrder       Int
-  title           String      @db.VarChar(160)
+  title           String                      @db.VarChar(160)
   content         String
   durationMinutes Int?
   sets            Int?
   repetitions     Int?
-  intensity       String?     @db.VarChar(40)
+  intensity       String?                     @db.VarChar(40)
   note            String?
-  workoutPlan     WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  workoutPlan     WorkoutPlan                 @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  completions     WorkoutPlanItemCompletion[]
 
   @@unique([workoutPlanId, weekNumber, sessionNumber, itemOrder])
 }
 
 model PlanPrivateEnrollment {
-  id            Int                     @id @default(autoincrement())
-  enrollmentId  Int
-  workoutPlanId Int
-  assignedById  Int
-  assignedAt    DateTime                @default(now())
-  status        PlanAssignmentStatus    @default(ACTIVE)
-  assignedBy    Coach                   @relation(fields: [assignedById], references: [userId])
-  enrollment    PrivateCourseEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  workoutPlan   WorkoutPlan             @relation(fields: [workoutPlanId], references: [id])
+  id             Int                         @id @default(autoincrement())
+  enrollmentId   Int
+  workoutPlanId  Int
+  assignedById   Int
+  assignedAt     DateTime                    @default(now())
+  status         PlanAssignmentStatus        @default(ACTIVE)
+  assignedBy     Coach                       @relation(fields: [assignedById], references: [userId])
+  enrollment     PrivateCourseEnrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  workoutPlan    WorkoutPlan                 @relation(fields: [workoutPlanId], references: [id])
+  completedItems WorkoutPlanItemCompletion[]
 
   @@unique([enrollmentId, workoutPlanId])
   @@index([workoutPlanId])
 }
 
-model ProgressAssessment {
-  id                  Int                      @id @default(autoincrement())
-  memberId            Int
-  coachId             Int
-  classRegistrationId Int?
-  privateEnrollmentId Int?
-  assessmentDate      DateTime                 @db.Date
-  score               Decimal?                 @db.Decimal(5, 2)
-  metrics             Json?
-  coachComment        String
-  recommendation      String?
-  nextAssessmentDate  DateTime?                @db.Date
-  createdAt           DateTime                 @default(now())
-  classRegistration   ClassRegistration?       @relation(fields: [classRegistrationId], references: [id])
-  coach               Coach                    @relation(fields: [coachId], references: [userId])
-  member              Member                   @relation(fields: [memberId], references: [userId])
-  privateEnrollment   PrivateCourseEnrollment? @relation(fields: [privateEnrollmentId], references: [id])
+model WorkoutPlanItemCompletion {
+  id                        Int                     @id @default(autoincrement())
+  planAssignmentId          Int
+  workoutPlanItemId         Int
+  privateCourseAttendanceId Int
+  completedById             Int
+  completedAt               DateTime                @default(now())
+  note                      String?                 @db.VarChar(500)
+  planAssignment            PlanPrivateEnrollment   @relation(fields: [planAssignmentId], references: [id], onDelete: Cascade)
+  workoutPlanItem           WorkoutPlanItem         @relation(fields: [workoutPlanItemId], references: [id], onDelete: Cascade)
+  privateCourseAttendance   PrivateCourseAttendance @relation(fields: [privateCourseAttendanceId], references: [id], onDelete: Cascade)
+  completedBy               Coach                   @relation(fields: [completedById], references: [userId])
 
+  @@unique([privateCourseAttendanceId, workoutPlanItemId])
+  @@index([planAssignmentId, completedAt])
+}
+
+model ProgressAssessment {
+  id                        Int                      @id @default(autoincrement())
+  memberId                  Int
+  coachId                   Int
+  classRegistrationId       Int?
+  privateEnrollmentId       Int?
+  classSessionId            Int?
+  privateCourseAttendanceId Int?
+  assessmentDate            DateTime                 @db.Date
+  score                     Decimal?                 @db.Decimal(5, 2)
+  metrics                   Json?
+  coachComment              String
+  recommendation            String?
+  nextAssessmentDate        DateTime?                @db.Date
+  createdAt                 DateTime                 @default(now())
+  classRegistration         ClassRegistration?       @relation(fields: [classRegistrationId], references: [id])
+  coach                     Coach                    @relation(fields: [coachId], references: [userId])
+  member                    Member                   @relation(fields: [memberId], references: [userId])
+  privateEnrollment         PrivateCourseEnrollment? @relation(fields: [privateEnrollmentId], references: [id])
+  classSession              ClassSession?            @relation(fields: [classSessionId], references: [id])
+  privateCourseAttendance   PrivateCourseAttendance? @relation(fields: [privateCourseAttendanceId], references: [id])
+  metricValues              AssessmentMetricValue[]
+
+  @@unique([classSessionId, memberId])
+  @@unique([privateCourseAttendanceId, memberId])
   @@index([memberId, assessmentDate])
   @@index([coachId, assessmentDate])
+}
+
+model AssessmentMetricDefinition {
+  id           Int                       @id @default(autoincrement())
+  sportId      Int
+  code         String                    @db.VarChar(50)
+  name         String                    @db.VarChar(120)
+  unit         String                    @db.VarChar(30)
+  minValue     Decimal                   @db.Decimal(10, 2)
+  maxValue     Decimal                   @db.Decimal(10, 2)
+  direction    AssessmentMetricDirection @default(HIGHER_IS_BETTER)
+  isRequired   Boolean                   @default(true)
+  isActive     Boolean                   @default(true)
+  displayOrder Int                       @default(0)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  sport        Sport                     @relation(fields: [sportId], references: [id], onDelete: Restrict)
+  values       AssessmentMetricValue[]
+
+  @@unique([sportId, code])
+  @@index([sportId, isActive, displayOrder])
+}
+
+model AssessmentMetricValue {
+  id           Int                        @id @default(autoincrement())
+  assessmentId Int
+  definitionId Int
+  value        Decimal                    @db.Decimal(10, 2)
+  assessment   ProgressAssessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  definition   AssessmentMetricDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([assessmentId, definitionId])
+  @@index([definitionId])
 }
 
 enum UserStatus {
@@ -1047,6 +1141,17 @@ enum PromotionStatus {
   ACTIVE
   INACTIVE
   EXPIRED
+}
+
+enum PromotionReservationStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+}
+
+enum AssessmentMetricDirection {
+  HIGHER_IS_BETTER
+  LOWER_IS_BETTER
 }
 
 enum PaymentChannel {

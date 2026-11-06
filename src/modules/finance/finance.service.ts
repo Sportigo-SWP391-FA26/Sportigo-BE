@@ -42,16 +42,51 @@ function assertPayable(order: Awaited<ReturnType<typeof requireOrder>>) {
   if (order.expiresAt && order.expiresAt <= new Date()) throw new HttpError(409, 'Đơn hàng đã hết hạn thanh toán', 'ORDER_EXPIRED')
 }
 
-export async function createServiceOrder(input: { memberId: number; itemType: OrderItemType; itemName: string; unitPrice: number; classRegistrationId?: number; privateEnrollmentId?: number; expiresAt?: Date }) {
-  const refs = Number(Boolean(input.classRegistrationId)) + Number(Boolean(input.privateEnrollmentId))
-  if (refs !== 1) throw new HttpError(400, 'Order Item phải tham chiếu đúng một dịch vụ', 'INVALID_ORDER_ITEM')
+type ServiceOrderItemInput = {
+  itemType: OrderItemType
+  itemName: string
+  unitPrice: number
+  classRegistrationId?: number
+  privateEnrollmentId?: number
+}
+
+export async function createServiceOrderWithItems(input: { memberId: number; items: ServiceOrderItemInput[]; expiresAt?: Date }) {
+  if (input.items.length === 0) throw new HttpError(400, 'Đơn hàng phải có ít nhất một dịch vụ', 'ORDER_ITEMS_REQUIRED')
+  for (const item of input.items) {
+    const refs = Number(Boolean(item.classRegistrationId)) + Number(Boolean(item.privateEnrollmentId))
+    if (refs !== 1) throw new HttpError(400, 'Order Item phải tham chiếu đúng một dịch vụ', 'INVALID_ORDER_ITEM')
+  }
+  const originalAmount = input.items.reduce((sum, item) => sum.plus(item.unitPrice), money(0))
   return prisma.$transaction(async (tx) => tx.serviceOrder.create({
     data: {
       memberId: input.memberId, orderNumber: `SO-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      originalAmount: money(input.unitPrice), discountAmount: 0, finalAmount: money(input.unitPrice), status: 'PENDING_PAYMENT', expiresAt: input.expiresAt,
-      items: { create: { itemType: input.itemType, itemNameSnapshot: input.itemName, unitPrice: money(input.unitPrice), finalAmount: money(input.unitPrice), classRegistrationId: input.classRegistrationId, privateEnrollmentId: input.privateEnrollmentId } },
+      originalAmount, discountAmount: 0, finalAmount: originalAmount, status: 'PENDING_PAYMENT', expiresAt: input.expiresAt,
+      items: {
+        create: input.items.map((item) => ({
+          itemType: item.itemType,
+          itemNameSnapshot: item.itemName,
+          unitPrice: money(item.unitPrice),
+          finalAmount: money(item.unitPrice),
+          classRegistrationId: item.classRegistrationId,
+          privateEnrollmentId: item.privateEnrollmentId,
+        })),
+      },
     }, include: orderInclude,
   }))
+}
+
+export async function createServiceOrder(input: { memberId: number; itemType: OrderItemType; itemName: string; unitPrice: number; classRegistrationId?: number; privateEnrollmentId?: number; expiresAt?: Date }) {
+  return createServiceOrderWithItems({
+    memberId: input.memberId,
+    expiresAt: input.expiresAt,
+    items: [{
+      itemType: input.itemType,
+      itemName: input.itemName,
+      unitPrice: input.unitPrice,
+      classRegistrationId: input.classRegistrationId,
+      privateEnrollmentId: input.privateEnrollmentId,
+    }],
+  })
 }
 
 export const getOrder = requireOrder
@@ -68,18 +103,40 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
     const itemTypes = new Set(order.items.map((item) => item.itemType))
     if (itemTypes.has('WALLET_TOP_UP')) throw new HttpError(400, 'Mã khuyến mãi không áp dụng cho giao dịch nạp ví', 'PROMOTION_SCOPE_MISMATCH')
     if (promotion.applicableType !== 'ALL' && !itemTypes.has(promotion.applicableType)) throw new HttpError(400, 'Mã không áp dụng cho dịch vụ này', 'PROMOTION_SCOPE_MISMATCH')
-    const [total, memberTotal] = await Promise.all([
+    if (!order.expiresAt) throw new HttpError(409, 'Đơn hàng chưa có thời hạn giữ mã khuyến mãi', 'ORDER_EXPIRY_REQUIRED')
+    await tx.promotionReservation.updateMany({ where: { status: 'ACTIVE', expiresAt: { lte: now } }, data: { status: 'RELEASED' } })
+    const [totalUsed, memberUsed, totalReserved, memberReserved] = await Promise.all([
       tx.promotionUsage.count({ where: { promotionId: promotion.id, orderId: { not: order.id } } }),
       tx.promotionUsage.count({ where: { promotionId: promotion.id, memberId: order.memberId, orderId: { not: order.id } } }),
+      tx.promotionReservation.count({ where: { promotionId: promotion.id, orderId: { not: order.id }, status: 'ACTIVE', expiresAt: { gt: now } } }),
+      tx.promotionReservation.count({ where: { promotionId: promotion.id, memberId: order.memberId, orderId: { not: order.id }, status: 'ACTIVE', expiresAt: { gt: now } } }),
     ])
-    if (promotion.totalUsageLimit && total >= promotion.totalUsageLimit || promotion.perMemberLimit && memberTotal >= promotion.perMemberLimit) throw new HttpError(409, 'Mã khuyến mãi đã hết lượt sử dụng', 'PROMOTION_USAGE_LIMIT')
-    const discount = calculateDiscount({ originalAmount: order.originalAmount, discountType: promotion.discountType, discountValue: promotion.discountValue, maxDiscount: promotion.maxDiscount })
+    if (promotion.totalUsageLimit && totalUsed + totalReserved >= promotion.totalUsageLimit || promotion.perMemberLimit && memberUsed + memberReserved >= promotion.perMemberLimit) throw new HttpError(409, 'Mã khuyến mãi đã hết lượt sử dụng', 'PROMOTION_USAGE_LIMIT')
+    const eligibleItems = order.items.filter((item) => promotion.applicableType === 'ALL' || item.itemType === promotion.applicableType)
+    const eligibleSubtotal = eligibleItems.reduce((sum, item) => sum.plus(item.unitPrice), money(0))
+    const discount = calculateDiscount({ originalAmount: eligibleSubtotal, discountType: promotion.discountType, discountValue: promotion.discountValue, maxDiscount: promotion.maxDiscount })
     const finalAmount = order.originalAmount.minus(discount)
-    const updated = await tx.serviceOrder.update({ where: { id: order.id }, data: { promotionId: promotion.id, discountAmount: discount, finalAmount }, include: orderInclude })
+    await tx.serviceOrder.update({ where: { id: order.id }, data: { promotionId: promotion.id, discountAmount: discount, finalAmount } })
+    let allocated = money(0)
+    for (const [index, item] of eligibleItems.entries()) {
+      const itemDiscount = index === eligibleItems.length - 1
+        ? discount.minus(allocated)
+        : discount.mul(item.unitPrice).div(eligibleSubtotal).toDecimalPlaces(2)
+      allocated = allocated.plus(itemDiscount)
+      await tx.orderItem.update({ where: { id: item.id }, data: { discountAmount: itemDiscount, finalAmount: item.unitPrice.minus(itemDiscount) } })
+    }
+    await tx.orderItem.updateMany({ where: { orderId: order.id, id: { notIn: eligibleItems.map((item) => item.id) } }, data: { discountAmount: 0 } })
+    for (const item of order.items.filter((candidate) => !eligibleItems.some((eligible) => eligible.id === candidate.id))) {
+      await tx.orderItem.update({ where: { id: item.id }, data: { finalAmount: item.unitPrice } })
+    }
     await tx.payment.updateMany({ where: { orderId: order.id, status: 'PENDING' }, data: { amount: finalAmount } })
-    await tx.promotionUsage.upsert({ where: { orderId: order.id }, create: { orderId: order.id, promotionId: promotion.id, memberId: order.memberId }, update: { promotionId: promotion.id, memberId: order.memberId } })
+    await tx.promotionReservation.upsert({
+      where: { orderId: order.id },
+      create: { orderId: order.id, promotionId: promotion.id, memberId: order.memberId, expiresAt: order.expiresAt },
+      update: { promotionId: promotion.id, memberId: order.memberId, expiresAt: order.expiresAt, status: 'ACTIVE' },
+    })
     await audit(tx, { actorId: user.id, action: 'APPLY_PROMOTION', entityType: 'ServiceOrder', entityId: order.id, oldData: { promotionId: order.promotionId }, newData: { promotionId: promotion.id, discount: discount.toString() } })
-    return updated
+    return requireOrder(order.id, user, tx)
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try { return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) }
@@ -88,7 +145,39 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
   throw new HttpError(409, 'Không thể giữ lượt khuyến mãi, vui lòng thử lại', 'PROMOTION_CONFLICT')
 }
 
-export async function listPromotions() { return prisma.promotion.findMany({ orderBy: { createdAt: 'desc' } }) }
+export async function listPromotions(user: { id: number; role: string }) {
+  if (user.role === 'CENTER_MANAGER') return prisma.promotion.findMany({ orderBy: { createdAt: 'desc' } })
+  const now = new Date()
+  const promotions = await prisma.promotion.findMany({
+    where: { isPublic: true, status: 'ACTIVE', startAt: { lte: now }, endAt: { gte: now } },
+    include: {
+      _count: {
+        select: {
+          usages: true,
+          reservations: { where: { status: 'ACTIVE', expiresAt: { gt: now } } },
+        },
+      },
+      usages: { where: { memberId: user.id }, select: { id: true } },
+      reservations: { where: { memberId: user.id, status: 'ACTIVE', expiresAt: { gt: now } }, select: { id: true } },
+    },
+    orderBy: { endAt: 'asc' },
+  })
+  return promotions
+    .filter((promotion) => (!promotion.totalUsageLimit || promotion._count.usages + promotion._count.reservations < promotion.totalUsageLimit)
+      && (!promotion.perMemberLimit || promotion.usages.length + promotion.reservations.length < promotion.perMemberLimit))
+    .map((promotion) => ({
+      id: promotion.id,
+      code: promotion.code,
+      name: promotion.name,
+      discountType: promotion.discountType,
+      discountValue: promotion.discountValue,
+      maxDiscount: promotion.maxDiscount,
+      minOrderAmount: promotion.minOrderAmount,
+      applicableType: promotion.applicableType,
+      startAt: promotion.startAt,
+      endAt: promotion.endAt,
+    }))
+}
 export async function createPromotion(data: Prisma.PromotionCreateInput, actorId: number) {
   const created = await prisma.promotion.create({ data })
   await audit(prisma, { actorId, action: 'CREATE_PROMOTION', entityType: 'Promotion', entityId: created.id, newData: created })
@@ -126,7 +215,10 @@ async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) 
       await audit(tx, { actorId: order.memberId, action: 'WALLET_TOP_UP', entityType: 'Wallet', entityId: wallet.id, newData: { orderId: order.id, amount: order.finalAmount.toString(), balanceAfter: balanceAfter.toString() } })
     }
   }
-  if (order.promotionId) await tx.promotionUsage.upsert({ where: { orderId }, create: { orderId, promotionId: order.promotionId, memberId: order.memberId }, update: {} })
+  if (order.promotionId) {
+    await tx.promotionUsage.upsert({ where: { orderId }, create: { orderId, promotionId: order.promotionId, memberId: order.memberId }, update: {} })
+    await tx.promotionReservation.updateMany({ where: { orderId, status: 'ACTIVE' }, data: { status: 'CONSUMED' } })
+  }
   await tx.invoice.upsert({ where: { orderId }, create: { orderId, invoiceNumber: `INV-${Date.now()}-${orderId}`, subtotal: order.originalAmount, discountAmount: order.discountAmount, totalAmount: order.finalAmount }, update: {} })
   // note(FR-54): chỉ báo lần đầu đơn chuyển sang PAID, callback VNPay lặp lại không tạo thông báo trùng
   if (order.status !== 'PAID') await notify(tx, { userIds: [order.memberId], type: NOTIFICATION_TYPES.PAYMENT_SUCCESS, title: topUpItem ? 'Nạp ví thành công' : 'Thanh toán thành công', content: topUpItem ? `Ví Sportigo đã được cộng ${vnd(order.finalAmount)} từ đơn ${order.orderNumber}.` : `Đơn ${order.orderNumber} đã được thanh toán đủ ${vnd(order.finalAmount)}. Dịch vụ của bạn đã được kích hoạt.` })
@@ -297,7 +389,7 @@ export async function getWallet(memberId: number, page: number, limit: number) {
 export async function listPayments(user: { id: number; role: string }, query: { page: number; limit: number; from?: Date; to?: Date; status?: Prisma.EnumPaymentStatusFilter['equals']; channel?: Prisma.EnumPaymentChannelFilter['equals']; memberId?: number }) {
   const { page, limit } = query
   const where: Prisma.PaymentWhereInput = { status: query.status, channel: query.channel, createdAt: { gte: query.from, lte: query.to }, order: { memberId: user.role === 'MEMBER' ? user.id : query.memberId } }
-  const [items, total] = await Promise.all([prisma.payment.findMany({ where, include: { order: { include: { invoice: true } }, paymentMethod: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), prisma.payment.count({ where })])
+  const [items, total] = await Promise.all([prisma.payment.findMany({ where, include: { order: { include: { invoice: true, items: true } }, paymentMethod: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), prisma.payment.count({ where })])
   return { items, page, limit, total }
 }
 
@@ -306,17 +398,61 @@ function refundable(payment: { amount: Prisma.Decimal; adjustments: { amount: Pr
 }
 
 export async function requestRefund(paymentId: number, memberId: number, requestedAmount: number, reason: string) {
-  const payment = await prisma.payment.findUnique({ where: { id: paymentId }, include: { order: { include: { items: { include: { classRegistration: true, privateEnrollment: true } } } }, adjustments: true, refundRequests: true } })
+  const payment = await prisma.payment.findUnique({ where: { id: paymentId }, include: { order: { include: { items: true } } } })
   if (!payment || payment.order.memberId !== memberId) throw new HttpError(404, 'Không tìm thấy giao dịch', 'PAYMENT_NOT_FOUND')
   if (!['SUCCESS', 'PARTIALLY_REFUNDED'].includes(payment.status)) throw new HttpError(409, 'Giao dịch không đủ điều kiện hoàn', 'PAYMENT_NOT_REFUNDABLE')
-  const cancelled = payment.order.items.every((item) => item.classRegistration?.status === 'CANCELLED' || item.privateEnrollment?.status === 'CANCELLED')
-  if (!cancelled) throw new HttpError(409, 'Dịch vụ phải được hủy hợp lệ trước khi yêu cầu hoàn tiền', 'SERVICE_NOT_CANCELLED')
-  if (payment.refundRequests.some((item) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(item.status))) throw new HttpError(409, 'Đã có yêu cầu hoàn tiền đang xử lý', 'REFUND_ALREADY_PENDING')
-  if (money(requestedAmount).greaterThan(refundable(payment))) throw new HttpError(400, 'Số tiền yêu cầu vượt quá số tiền có thể hoàn', 'REFUND_AMOUNT_EXCEEDED')
-  return prisma.refundRequest.create({ data: { paymentId, memberId, requestedAmount: money(requestedAmount), reason } })
+  if (payment.order.items.length !== 1) throw new HttpError(409, 'Đơn hàng có nhiều dịch vụ, vui lòng chọn dịch vụ cần hoàn', 'ORDER_ITEM_REQUIRED')
+  return requestOrderItemRefund(payment.order.items[0]!.id, memberId, requestedAmount, reason, paymentId)
 }
 
-export async function listRefunds() { return prisma.refundRequest.findMany({ include: { payment: { include: { order: true } }, member: { include: { user: true } } }, orderBy: { requestedAt: 'desc' } }) }
+export async function requestOrderItemRefund(orderItemId: number, memberId: number, requestedAmount: number, reason: string, legacyPaymentId?: number) {
+  const work = async (tx: Prisma.TransactionClient) => {
+    const item = await tx.orderItem.findUnique({
+      where: { id: orderItemId },
+      include: {
+        classRegistration: true,
+        privateEnrollment: true,
+        paymentAdjustments: { where: { type: 'REFUND' } },
+        refundRequests: { where: { status: { in: ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'] } } },
+        order: {
+          include: {
+            payments: { where: { status: { in: ['SUCCESS', 'PARTIALLY_REFUNDED'] } }, include: { adjustments: true } },
+            items: { include: { refundRequests: { where: { status: { in: ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'] } } } } },
+          },
+        },
+      },
+    })
+    if (!item || item.order.memberId !== memberId) throw new HttpError(404, 'Không tìm thấy dịch vụ trong đơn hàng', 'ORDER_ITEM_NOT_FOUND')
+    const cancelled = item.classRegistration?.status === 'CANCELLED' || item.privateEnrollment?.status === 'CANCELLED'
+    if (!cancelled) throw new HttpError(409, 'Dịch vụ phải được hủy hợp lệ trước khi yêu cầu hoàn tiền', 'SERVICE_NOT_CANCELLED')
+    if (item.refundRequests.length > 0) throw new HttpError(409, 'Dịch vụ đã có yêu cầu hoàn tiền đang xử lý', 'REFUND_ALREADY_PENDING')
+    const alreadyRefunded = item.paymentAdjustments.reduce((sum, adjustment) => sum.plus(adjustment.amount), money(0))
+    const available = Prisma.Decimal.max(money(0), item.finalAmount.minus(alreadyRefunded))
+    const requested = money(requestedAmount)
+    if (requested.greaterThan(available)) throw new HttpError(400, 'Số tiền yêu cầu vượt quá giá trị còn có thể hoàn của dịch vụ', 'REFUND_AMOUNT_EXCEEDED')
+    const totalPaymentCapacity = item.order.payments.reduce((sum, payment) => sum.plus(refundable(payment)), money(0))
+    const reservedForPendingRefunds = item.order.items.flatMap((orderItem) => orderItem.refundRequests).reduce((sum, request) => sum.plus(request.approvedAmount ?? request.requestedAmount), money(0))
+    if (requested.greaterThan(Prisma.Decimal.max(money(0), totalPaymentCapacity.minus(reservedForPendingRefunds)))) throw new HttpError(409, 'Đơn hàng không còn đủ số tiền đã thanh toán để giữ cho yêu cầu hoàn', 'PAYMENT_REFUND_CAPACITY_EXCEEDED')
+    return tx.refundRequest.create({ data: { paymentId: legacyPaymentId, orderItemId, memberId, requestedAmount: requested, reason }, include: { orderItem: true } })
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try { return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) }
+    catch (error) { if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') || attempt === 2) throw error }
+  }
+  throw new HttpError(409, 'Dữ liệu hoàn tiền vừa thay đổi, vui lòng thử lại', 'REFUND_CONFLICT')
+}
+
+export async function listRefunds() {
+  return prisma.refundRequest.findMany({
+    include: {
+      payment: { include: { order: true } },
+      orderItem: { include: { order: true } },
+      adjustments: { include: { payment: true } },
+      member: { include: { user: true } },
+    },
+    orderBy: { requestedAt: 'desc' },
+  })
+}
 export async function reviewRefund(id: number, decision: 'REVIEW' | 'APPROVE' | 'REJECT', note: string, actorId: number, approvedAmount?: number) {
   const current = await prisma.refundRequest.findUnique({ where: { id } }); if (!current) throw new HttpError(404, 'Không tìm thấy yêu cầu hoàn tiền', 'REFUND_NOT_FOUND')
   const allowed = decision === 'REVIEW' ? current.status === 'REQUESTED' : ['REQUESTED', 'UNDER_REVIEW'].includes(current.status)
@@ -331,39 +467,214 @@ export async function reviewRefund(id: number, decision: 'REVIEW' | 'APPROVE' | 
 }
 
 export async function completeRefund(id: number, actorId: number, ipAddress?: string) {
-  return prisma.$transaction(async (tx) => {
-    const request = await tx.refundRequest.findUnique({ where: { id }, include: { payment: { include: { adjustments: true, order: { include: { payments: { include: { adjustments: true } } } } } } } })
+  const work = async (tx: Prisma.TransactionClient) => {
+    const request = await tx.refundRequest.findUnique({
+      where: { id },
+      include: {
+        adjustments: true,
+        orderItem: {
+          include: {
+            paymentAdjustments: { where: { type: 'REFUND' } },
+            order: { include: { items: { include: { paymentAdjustments: { where: { type: 'REFUND' } } } }, payments: { include: { adjustments: true }, orderBy: [{ paidAt: 'asc' }, { id: 'asc' }] } } },
+          },
+        },
+      },
+    })
     if (!request) throw new HttpError(404, 'Không tìm thấy yêu cầu hoàn tiền', 'REFUND_NOT_FOUND')
     if (request.status === 'COMPLETED') return request
     if (request.status !== 'APPROVED') throw new HttpError(409, 'Yêu cầu chưa được duyệt', 'REFUND_NOT_APPROVED')
     const approved = request.approvedAmount ?? request.requestedAmount
-    if (approved.greaterThan(refundable(request.payment))) throw new HttpError(409, 'Số tiền hoàn vượt quá số dư có thể hoàn', 'REFUND_AMOUNT_EXCEEDED')
-    const adjustment = await tx.paymentAdjustment.create({ data: { paymentId: request.paymentId, createdById: actorId, type: 'REFUND', amount: approved, reason: request.reason } })
+    const itemRefunded = request.orderItem.paymentAdjustments.reduce((sum, adjustment) => sum.plus(adjustment.amount), money(0))
+    if (approved.greaterThan(request.orderItem.finalAmount.minus(itemRefunded))) throw new HttpError(409, 'Số tiền hoàn vượt quá giá trị còn lại của dịch vụ', 'REFUND_AMOUNT_EXCEEDED')
+    let unallocated = approved
+    for (const payment of request.orderItem.order.payments) {
+      if (!['SUCCESS', 'PARTIALLY_REFUNDED'].includes(payment.status) || unallocated.lessThanOrEqualTo(0)) continue
+      const paymentAvailable = refundable(payment)
+      if (paymentAvailable.lessThanOrEqualTo(0)) continue
+      const allocation = Prisma.Decimal.min(paymentAvailable, unallocated)
+      await tx.paymentAdjustment.create({ data: { paymentId: payment.id, orderItemId: request.orderItemId, refundRequestId: request.id, createdById: actorId, type: 'REFUND', amount: allocation, reason: request.reason } })
+      const remainingPayment = paymentAvailable.minus(allocation)
+      await tx.payment.update({ where: { id: payment.id }, data: { status: remainingPayment.equals(0) ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
+      unallocated = unallocated.minus(allocation)
+    }
+    if (unallocated.greaterThan(0)) throw new HttpError(409, 'Không thể phân bổ đủ số tiền hoàn vào các giao dịch đã thanh toán', 'REFUND_ALLOCATION_FAILED')
     const wallet = await tx.wallet.upsert({ where: { memberId: request.memberId }, create: { memberId: request.memberId }, update: {} }); const after = wallet.balance.plus(approved)
     const credit = await tx.wallet.updateMany({ where: { id: wallet.id, version: wallet.version }, data: { balance: after, version: { increment: 1 } } })
     if (credit.count !== 1) throw new HttpError(409, 'Số dư ví vừa thay đổi, vui lòng thử lại', 'WALLET_CONFLICT')
     await tx.walletTransaction.create({ data: { walletId: wallet.id, createdById: actorId, type: 'REFUND_CREDIT', amount: approved, balanceBefore: wallet.balance, balanceAfter: after, referenceType: 'RefundRequest', referenceId: String(id), idempotencyKey: `REFUND_CREDIT:${id}`, description: request.reason } })
-    const paymentFullyRefunded = isFullyRefunded(request.payment.amount, request.payment.adjustments.filter((item) => item.type === 'REFUND').map((item) => item.amount), approved)
-    await tx.payment.update({ where: { id: request.paymentId }, data: { status: paymentFullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
-    const previousOrderRefunds = request.payment.order.payments.flatMap((item) => item.adjustments).filter((item) => item.type === 'REFUND').reduce((sum, item) => sum.plus(item.amount), money(0))
-    const orderFullyRefunded = isFullyRefunded(request.payment.order.finalAmount, [previousOrderRefunds], approved)
-    await tx.serviceOrder.update({ where: { id: request.payment.orderId }, data: { status: orderFullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
-    const completed = await tx.refundRequest.update({ where: { id }, data: { status: 'COMPLETED', adjustmentId: adjustment.id, completedAt: new Date() } })
+    const previousOrderRefunds = request.orderItem.order.items.flatMap((item) => item.paymentAdjustments).reduce((sum, item) => sum.plus(item.amount), money(0))
+    const orderFullyRefunded = isFullyRefunded(request.orderItem.order.finalAmount, [previousOrderRefunds], approved)
+    await tx.serviceOrder.update({ where: { id: request.orderItem.orderId }, data: { status: orderFullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } })
+    const completed = await tx.refundRequest.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date() }, include: { orderItem: true, adjustments: true } })
     await audit(tx, { actorId, action: 'COMPLETE_REFUND_TO_WALLET', entityType: 'RefundRequest', entityId: id, newData: { amount: approved.toString(), walletBalance: after.toString() }, ipAddress })
     // note(FR-54): cùng transaction với cộng ví → không có thông báo nếu cộng ví thất bại
     await notify(tx, { userIds: [request.memberId], type: NOTIFICATION_TYPES.REFUND, title: 'Đã hoàn tiền vào ví', content: `Yêu cầu hoàn tiền #${id} đã hoàn tất, ${vnd(approved)} đã được cộng vào ví Sportigo.` })
     return completed
-  })
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try { return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) }
+    catch (error) { if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') || attempt === 2) throw error }
+  }
+  throw new HttpError(409, 'Dữ liệu hoàn tiền vừa thay đổi, vui lòng thử lại', 'REFUND_CONFLICT')
 }
 
-export async function revenueReport(query: { from?: Date; to?: Date; channel?: Prisma.EnumPaymentChannelFilter['equals']; itemType?: OrderItemType } = {}) {
-  const payments = await prisma.payment.findMany({ where: { status: { in: ['SUCCESS', 'PARTIALLY_REFUNDED', 'REFUNDED'] }, channel: query.channel, paidAt: { gte: query.from, lte: query.to }, order: query.itemType ? { items: { some: { itemType: query.itemType } } } : undefined }, include: { adjustments: true, paymentMethod: true, order: { include: { items: true } } } })
-  return payments.reduce((report, payment) => {
-    const refunds = payment.adjustments.filter((item) => item.type === 'REFUND').reduce((sum, item) => sum.plus(item.amount), money(0)); const net = payment.amount.minus(refunds)
-    report.gross += asNumber(payment.amount); report.refunds += asNumber(refunds); report.net += asNumber(net); report.transactions += 1
-    report.byChannel[payment.channel] = (report.byChannel[payment.channel] ?? 0) + asNumber(net)
-    return report
-  }, { gross: 0, refunds: 0, net: 0, transactions: 0, byChannel: {} as Record<string, number> })
+export type RevenueReportQuery = { from?: Date; to?: Date; channel?: Prisma.EnumPaymentChannelFilter['equals']; itemType?: OrderItemType }
+
+const serviceItemTypes: OrderItemType[] = ['GROUP_CLASS', 'PRIVATE_COURSE']
+
+function currentMonthRange(now = new Date()) {
+  // Việt Nam không áp dụng DST; 00:00 GMT+7 tương ứng 17:00 UTC ngày hôm trước.
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).formatToParts(now)
+  const year = Number(parts.find((part) => part.type === 'year')?.value)
+  const month = Number(parts.find((part) => part.type === 'month')?.value)
+  return {
+    from: new Date(Date.UTC(year, month - 1, 1, -7)),
+    to: new Date(Date.UTC(year, month, 1, -7) - 1),
+  }
+}
+
+export function normalizeRevenuePeriod(query: RevenueReportQuery = {}) {
+  const defaults = currentMonthRange()
+  return { ...query, from: query.from ?? defaults.from, to: query.to ?? defaults.to }
+}
+
+const successfulPaymentStatuses = ['SUCCESS', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const
+
+export async function financialReportData(input: RevenueReportQuery = {}) {
+  const query = normalizeRevenuePeriod(input)
+  const serviceFilter: Prisma.OrderItemWhereInput = query.itemType
+    ? { itemType: query.itemType }
+    : { itemType: { in: serviceItemTypes } }
+  const paymentWhere: Prisma.PaymentWhereInput = {
+    status: { in: [...successfulPaymentStatuses] },
+    channel: query.channel,
+    paidAt: { gte: query.from, lte: query.to },
+    order: { items: { some: serviceFilter } },
+  }
+  const [payments, walletTopUps, refundAdjustments, refundRequests] = await Promise.all([
+    prisma.payment.findMany({
+      where: paymentWhere,
+      include: {
+        adjustments: { where: { type: 'REFUND', createdAt: { gte: query.from, lte: query.to } } },
+        paymentMethod: true,
+        collectedBy: { select: { displayName: true } },
+        order: {
+          include: {
+            items: true,
+            invoice: true,
+            member: { include: { user: { select: { displayName: true, email: true } } } },
+          },
+        },
+      },
+      orderBy: [{ paidAt: 'asc' }, { id: 'asc' }],
+    }),
+    prisma.payment.findMany({
+      where: {
+        status: { in: [...successfulPaymentStatuses] },
+        channel: query.channel,
+        paidAt: { gte: query.from, lte: query.to },
+        order: { items: { some: { itemType: 'WALLET_TOP_UP' } } },
+      },
+      include: { paymentMethod: true },
+      orderBy: [{ paidAt: 'asc' }, { id: 'asc' }],
+    }),
+    prisma.paymentAdjustment.findMany({
+      where: {
+        type: 'REFUND',
+        createdAt: { gte: query.from, lte: query.to },
+        payment: { channel: query.channel, order: { items: { some: serviceFilter } } },
+      },
+      include: { orderItem: true, payment: { include: { order: { include: { items: true } } } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }),
+    prisma.refundRequest.findMany({
+      where: { requestedAt: { gte: query.from, lte: query.to }, orderItem: { ...serviceFilter, order: { payments: { some: query.channel ? { channel: query.channel } : {} } } } },
+      include: {
+        member: { include: { user: { select: { displayName: true, email: true } } } },
+        payment: { include: { order: true } },
+        orderItem: { include: { order: true } },
+        adjustments: { include: { payment: true } },
+        reviewedBy: { select: { displayName: true } },
+      },
+      orderBy: { requestedAt: 'asc' },
+    }),
+  ])
+
+  const orderDiscounts = new Map<number, number>()
+  const byChannel: Record<string, number> = {}
+  const byService: Record<string, { orders: Set<number>; transactions: number; gross: number; discount: number; refunds: number; net: number }> = {}
+  let gross = 0
+  let refunds = 0
+
+  for (const payment of payments) {
+    const paymentAmount = asNumber(payment.amount)
+    gross += paymentAmount
+    byChannel[payment.channel] = (byChannel[payment.channel] ?? 0) + paymentAmount
+    if (!orderDiscounts.has(payment.orderId)) orderDiscounts.set(payment.orderId, asNumber(payment.order.discountAmount))
+
+    const serviceItems = payment.order.items.filter((item) => serviceItemTypes.includes(item.itemType))
+    const totalItems = serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || paymentAmount
+    for (const item of serviceItems) {
+      const share = asNumber(item.finalAmount) / totalItems
+      const group = byService[item.itemType] ?? { orders: new Set<number>(), transactions: 0, gross: 0, discount: 0, refunds: 0, net: 0 }
+      const firstPaymentForOrder = !group.orders.has(payment.orderId)
+      group.orders.add(payment.orderId)
+      group.transactions += 1
+      group.gross += paymentAmount * share
+      if (firstPaymentForOrder) group.discount += asNumber(item.discountAmount)
+      byService[item.itemType] = group
+    }
+  }
+
+  for (const adjustment of refundAdjustments) {
+    const refundAmount = asNumber(adjustment.amount)
+    refunds += refundAmount
+    byChannel[adjustment.payment.channel] = (byChannel[adjustment.payment.channel] ?? 0) - refundAmount
+    const serviceItems = adjustment.orderItem
+      ? [adjustment.orderItem]
+      : adjustment.payment.order.items.filter((item) => serviceItemTypes.includes(item.itemType))
+    const totalItems = serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || asNumber(adjustment.payment.amount)
+    for (const item of serviceItems) {
+      const group = byService[item.itemType] ?? { orders: new Set<number>(), transactions: 0, gross: 0, discount: 0, refunds: 0, net: 0 }
+      group.refunds += adjustment.orderItem ? refundAmount : refundAmount * (asNumber(item.finalAmount) / totalItems)
+      byService[item.itemType] = group
+    }
+  }
+  for (const group of Object.values(byService)) group.net = group.gross - group.refunds
+
+  const walletTopUpAmount = walletTopUps.reduce((sum, payment) => sum + asNumber(payment.amount), 0)
+  return {
+    period: { from: query.from, to: query.to },
+    filters: { channel: query.channel ?? null, itemType: query.itemType ?? null },
+    gross,
+    discount: [...orderDiscounts.values()].reduce((sum, value) => sum + value, 0),
+    refunds,
+    net: gross - refunds,
+    transactions: payments.length,
+    walletTopUps: walletTopUpAmount,
+    byChannel,
+    byService: Object.fromEntries(Object.entries(byService).map(([key, value]) => [key, { ...value, orders: value.orders.size }])),
+    payments,
+    refundRequests,
+    refundAdjustments,
+    walletTopUpPayments: walletTopUps,
+  }
+}
+
+export async function revenueReport(query: RevenueReportQuery = {}) {
+  const report = await financialReportData(query)
+  return {
+    period: report.period,
+    filters: report.filters,
+    gross: report.gross,
+    discount: report.discount,
+    refunds: report.refunds,
+    net: report.net,
+    transactions: report.transactions,
+    walletTopUps: report.walletTopUps,
+    byChannel: report.byChannel,
+    byService: report.byService,
+  }
 }
 
 export async function classReport(query: { from?: Date; to?: Date; sportId?: number; coachId?: number; classId?: number } = {}) {

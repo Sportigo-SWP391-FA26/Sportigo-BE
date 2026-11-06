@@ -37,6 +37,15 @@ export class SessionController {
     }
   }
 
+  async previewRecurringSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const preview = await sessionService.previewRecurringSessions(Number(req.params.id), req.body)
+      res.status(200).json({ success: true, data: preview })
+    } catch (error: unknown) {
+      next(error)
+    }
+  }
+
   async getClassSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const classId = Number(req.params.id)

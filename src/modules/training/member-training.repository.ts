@@ -30,6 +30,15 @@ export function findMemberPlanAssignments(memberId: number) {
           items: { orderBy: planItemOrderBy, select: planItemSelect },
         },
       },
+      completedItems: {
+        orderBy: { completedAt: 'asc' },
+        select: {
+          workoutPlanItemId: true,
+          completedAt: true,
+          privateCourseAttendance: { select: { id: true, sessionDate: true, startsAt: true, endsAt: true } },
+          completedBy: { select: coachRefSelect },
+        },
+      },
       enrollment: {
         select: {
           id: true,

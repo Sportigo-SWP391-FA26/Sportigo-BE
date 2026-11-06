@@ -72,6 +72,12 @@ export const flow2Paths = {
       responses: created,
     }),
   },
+  '/coaches': {
+    get: operation('Coaches', 'Danh sách Coach hoạt động theo chuyên môn', {
+      parameters: [query('sportId', { type: 'integer', minimum: 1 }), query('status', { type: 'string', enum: ['ACTIVE'] })],
+      responses: ok,
+    }),
+  },
   '/coaches/{id}/availability/{availabilityId}': {
     put: operation('Coaches', 'Cập nhật khung giờ khả dụng', {
       parameters: [id(), id('availabilityId')],
@@ -156,13 +162,23 @@ export const flow2Paths = {
   '/group-classes/{id}/sessions/recurring': {
     post: operation('Class Sessions', 'Tạo lịch học lặp hằng tuần', {
       parameters: [id()],
-      requestBody: jsonBody(['roomId', 'dayOfWeek', 'startTime', 'endTime', 'recurrence'], {
-        roomId: { type: 'integer' }, dayOfWeek: { type: 'integer', minimum: 0, maximum: 6 },
-        startTime: { type: 'string', example: '09:00' }, endTime: { type: 'string', example: '11:00' },
-        recurrence: { type: 'object', required: ['effectiveFrom', 'effectiveTo'], properties: { effectiveFrom: { type: 'string', format: 'date' }, effectiveTo: { type: 'string', format: 'date' } } },
+      requestBody: jsonBody(['patterns', 'effectiveFrom', 'effectiveTo'], {
+        patterns: { type: 'array', minItems: 1, items: { type: 'object', required: ['dayOfWeek', 'startTime', 'endTime', 'roomId'], properties: { dayOfWeek: { type: 'integer', minimum: 0, maximum: 6 }, startTime: { type: 'string', example: '07:00' }, endTime: { type: 'string', example: '08:30' }, roomId: { type: 'integer', minimum: 1 } } } },
+        effectiveFrom: { type: 'string', format: 'date' },
+        effectiveTo: { type: 'string', format: 'date' },
         note: { type: 'string' },
       }),
       responses: created,
+    }),
+  },
+  '/group-classes/{id}/sessions/recurring/preview': {
+    post: operation('Class Sessions', 'Kiểm tra lịch lặp trước khi tạo', {
+      parameters: [id()],
+      requestBody: jsonBody(['patterns', 'effectiveFrom', 'effectiveTo'], {
+        patterns: { type: 'array', minItems: 1, items: { type: 'object', required: ['dayOfWeek', 'startTime', 'endTime', 'roomId'], properties: { dayOfWeek: { type: 'integer' }, startTime: { type: 'string' }, endTime: { type: 'string' }, roomId: { type: 'integer' } } } },
+        effectiveFrom: { type: 'string', format: 'date' }, effectiveTo: { type: 'string', format: 'date' }, note: { type: 'string' },
+      }),
+      responses: ok,
     }),
   },
   '/group-classes/{id}/cancel': {
