@@ -199,6 +199,25 @@ export const userAdminPaths = {
       },
     },
   },
+  // note: FR-65 hiệu suất nhân sự, chỉ đọc dữ liệu có sẵn
+  '/staff/performance': {
+    get: {
+      tags: ['User Management'],
+      summary: 'Hiệu suất nhân sự Coach/Receptionist (FR-65)',
+      description:
+        'Chỉ Center Manager. Bỏ trống from/to thì lấy từ đầu tháng tới hôm nay (giờ Việt Nam); tối đa 366 ngày. Coach: buổi lớp nhóm đã diễn ra và đã điểm danh, buổi 1-1 đã dạy, tỷ lệ có mặt (có mặt + đi muộn), số đánh giá, số học viên đang phụ trách (thời điểm hiện tại). Receptionist: yêu cầu hỗ trợ đã giải quyết và đang giữ, thời gian giải quyết trung bình (giờ), tiền thu tại quầy, số hội viên tạo tại quầy.',
+      security,
+      parameters: [
+        { name: 'from', in: 'query', schema: { type: 'string', format: 'date' } },
+        { name: 'to', in: 'query', schema: { type: 'string', format: 'date' } },
+      ],
+      responses: {
+        '200': { description: '{ from, to, totals, coaches[], receptionists[] }' },
+        '400': { description: 'VALIDATION_ERROR (ngày sai, from > to, quá 366 ngày)' },
+        ...common,
+      },
+    },
+  },
   '/staff/{id}': {
     patch: {
       tags: ['User Management'],
