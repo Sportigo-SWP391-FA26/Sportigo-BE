@@ -24,7 +24,7 @@ export async function resetDatabase() {
   assertSafeTestDatabase(process.env.DATABASE_URL)
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables
-    WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`
+    WHERE schemaname = current_schema() AND tablename <> '_prisma_migrations'`
   const list = tables.map(({ tablename }) => `"${tablename}"`).join(', ')
   await prisma.$executeRawUnsafe(
     `TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`,
@@ -36,11 +36,10 @@ type TestUser = { id: number; role: RoleName; auth: string }
 
 async function createUser(role: RoleName): Promise<TestUser> {
   const key = uniqueKey()
-  const roleRow = await prisma.role.upsert({
-    where: { name: role },
-    update: {},
-    create: { name: role },
-  })
+  // Multiple fixtures may create users concurrently. createMany(skipDuplicates)
+  // avoids the SELECT/INSERT race of concurrent upsert calls on Role.name.
+  await prisma.role.createMany({ data: [{ name: role }], skipDuplicates: true })
+  const roleRow = await prisma.role.findUniqueOrThrow({ where: { name: role } })
   const user = await prisma.user.create({
     data: {
       email: `${role.toLowerCase()}-${key}@test.local`,
