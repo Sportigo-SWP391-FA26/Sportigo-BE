@@ -17,7 +17,7 @@ import coachRoutes from '../modules/coaches/coach.routes.js'
 import groupClassRoutes from '../modules/group-classes/group-class.routes.js'
 import sessionRoutes from '../modules/class-sessions/session.routes.js'
 import bookingRoutes from '../modules/bookings/booking.routes.js'
-import waitlistRoutes from '../modules/waitlist/waitlist.routes.js'
+import waitlistRoutes, { waitlistReadRouter } from '../modules/waitlist/waitlist.routes.js'
 import privateRoutes from '../modules/private-courses/private.routes.js'
 import attendanceRoutes from '../modules/attendance/attendance.routes.js'
 import reportRoutes from '../modules/reports/report.routes.js'
@@ -70,6 +70,7 @@ apiRouter.use('/group-classes', groupClassRoutes)
 apiRouter.use('/class-sessions', sessionRoutes)
 apiRouter.use('/bookings', bookingRoutes)
 apiRouter.use('/group-classes', waitlistRoutes)
+apiRouter.use('/waitlist', waitlistReadRouter)
 
 // Private courses
 apiRouter.use('/private-courses', privateRoutes)

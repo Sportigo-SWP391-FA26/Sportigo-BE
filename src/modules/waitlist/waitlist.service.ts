@@ -1,4 +1,11 @@
-import { ClassStatus, WaitlistStatus, RegistrationStatus, OrderStatus, OrderItemType } from '@prisma/client';
+import {
+  ClassStatus,
+  WaitlistStatus,
+  WaitlistInvitationStatus,
+  RegistrationStatus,
+  OrderStatus,
+  OrderItemType,
+} from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
 import { lockGroupClass } from '../../lib/group-class-lock.js';
@@ -8,6 +15,119 @@ import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
 const OFFER_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export class WaitlistService {
+  async getMemberWaitlists(memberId: number) {
+    return prisma.classWaitlist.findMany({
+      where: { memberId },
+      include: {
+        groupClass: { select: { id: true, name: true, status: true, capacity: true } },
+        invitations: {
+          include: {
+            order: {
+              select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                expiresAt: true,
+                payments: { select: { id: true, status: true, amount: true, paidAt: true } },
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: [{ joinedAt: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  async listWaitlists(filters: {
+    classId?: number;
+    status?: WaitlistStatus;
+    page: number;
+    limit: number;
+  }) {
+    const where = { classId: filters.classId, status: filters.status };
+    const [items, total] = await Promise.all([
+      prisma.classWaitlist.findMany({
+        where,
+        include: {
+          member: { include: { user: { select: { id: true, displayName: true, email: true } } } },
+          groupClass: { select: { id: true, name: true, status: true, capacity: true } },
+          invitations: {
+            include: {
+              order: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  status: true,
+                  expiresAt: true,
+                  payments: { select: { id: true, status: true, amount: true, paidAt: true } },
+                },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
+        skip: (filters.page - 1) * filters.limit,
+        take: filters.limit,
+      }),
+      prisma.classWaitlist.count({ where }),
+    ]);
+    return { items, page: filters.page, limit: filters.limit, total };
+  }
+
+  async getWaitlistHistory(waitlistId: number) {
+    const waitlist = await prisma.classWaitlist.findUnique({
+      where: { id: waitlistId },
+      select: {
+        id: true,
+        memberId: true,
+        classId: true,
+        status: true,
+        joinedAt: true,
+        offeredAt: true,
+        offerExpiresAt: true,
+        member: { select: { user: { select: { id: true, displayName: true, email: true } } } },
+        groupClass: { select: { id: true, name: true, status: true } },
+        invitations: {
+          include: {
+            order: {
+              select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                expiresAt: true,
+                payments: { select: { id: true, status: true, amount: true, paidAt: true } },
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!waitlist) throw new HttpError(404, 'Không tìm thấy bản ghi waitlist.', 'WAITLIST_NOT_FOUND');
+    return waitlist;
+  }
+
+  private async transitionLatestInvitation(
+    tx: Prisma.TransactionClient,
+    waitlistId: number,
+    status: WaitlistInvitationStatus,
+    now: Date,
+    extra: { orderId?: number; failureReason?: string } = {},
+  ) {
+    const invitation = await tx.classWaitlistInvitation.findFirst({
+      where: { waitlistId, status: WaitlistInvitationStatus.OFFERED },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!invitation) return;
+    await tx.classWaitlistInvitation.updateMany({
+      where: { id: invitation.id, status: WaitlistInvitationStatus.OFFERED },
+      data: { status, respondedAt: now, ...extra },
+    });
+  }
+
   async joinWaitlist(memberId: number, classId: number) {
     return prisma.$transaction(async (tx) => {
       if (!await lockGroupClass(tx, classId)) {
@@ -68,19 +188,32 @@ export class WaitlistService {
           },
         });
       }
-      return tx.classWaitlist.create({ data: { memberId, classId, status: WaitlistStatus.WAITING } });
+      return tx.classWaitlist.create({ data: { memberId, classId, status: WaitlistStatus.WAITING, joinedAt: now } });
     });
   }
 
   async offerNextInTransaction(tx: Prisma.TransactionClient, classId: number, now: Date) {
-    await tx.classWaitlist.updateMany({
+    const expiredOffers = await tx.classWaitlist.findMany({
       where: {
         classId,
         status: WaitlistStatus.OFFERED,
         offerExpiresAt: { lte: now },
       },
-      data: { status: WaitlistStatus.EXPIRED },
+      select: { id: true },
     });
+    if (expiredOffers.length > 0) {
+      await tx.classWaitlist.updateMany({
+        where: { id: { in: expiredOffers.map(({ id }) => id) }, status: WaitlistStatus.OFFERED },
+        data: { status: WaitlistStatus.EXPIRED },
+      });
+      await tx.classWaitlistInvitation.updateMany({
+        where: {
+          waitlistId: { in: expiredOffers.map(({ id }) => id) },
+          status: WaitlistInvitationStatus.OFFERED,
+        },
+        data: { status: WaitlistInvitationStatus.EXPIRED, respondedAt: now },
+      });
+    }
 
     const classInfo = await tx.groupClass.findUnique({
       where: { id: classId },
@@ -123,6 +256,14 @@ export class WaitlistService {
       data: { status: WaitlistStatus.OFFERED, offeredAt: now, offerExpiresAt },
     });
     if (claimed.count !== 1) return null;
+    await tx.classWaitlistInvitation.create({
+      data: {
+        waitlistId: nextInLine.id,
+        status: WaitlistInvitationStatus.OFFERED,
+        offeredAt: now,
+        expiresAt: offerExpiresAt,
+      },
+    });
     // note(FR-54): báo cho người được mời trong cùng transaction; mời thất bại thì không có thông báo
     await notify(tx, {
       userIds: [nextInLine.memberId],
@@ -150,24 +291,104 @@ export class WaitlistService {
       },
       select: { classId: true },
     });
-    const classIds = [...new Set(dueOffers.map((offer) => offer.classId))];
+    const duePayments = await prisma.serviceOrder.findMany({
+      where: {
+        status: OrderStatus.PENDING_PAYMENT,
+        expiresAt: { lte: now },
+        waitlistInvitation: { is: { status: WaitlistInvitationStatus.ACCEPTED } },
+      },
+      select: { id: true, waitlistInvitation: { select: { waitlist: { select: { classId: true } } } } },
+    });
+    const classIds = [...new Set([
+      ...dueOffers.map((offer) => offer.classId),
+      ...duePayments.flatMap((order) => order.waitlistInvitation ? [order.waitlistInvitation.waitlist.classId] : []),
+    ])];
     let expiredCount = 0;
+    let expiredPaymentCount = 0;
     for (const classId of classIds) {
-      expiredCount += await prisma.$transaction(async (tx) => {
-        if (!await lockGroupClass(tx, classId)) return 0;
-        const expired = await tx.classWaitlist.updateMany({
+      const expiredInClass = await prisma.$transaction(async (tx) => {
+        if (!await lockGroupClass(tx, classId)) return { offers: 0, payments: 0 };
+        let offers = 0;
+        let payments = 0;
+        const dueEntries = await tx.classWaitlist.findMany({
           where: {
             classId,
             status: WaitlistStatus.OFFERED,
             offerExpiresAt: { lte: now },
           },
-          data: { status: WaitlistStatus.EXPIRED },
+          select: { id: true },
         });
+        if (dueEntries.length > 0) {
+          const ids = dueEntries.map(({ id }) => id);
+          const expired = await tx.classWaitlist.updateMany({
+            where: { id: { in: ids }, status: WaitlistStatus.OFFERED, offerExpiresAt: { lte: now } },
+            data: { status: WaitlistStatus.EXPIRED },
+          });
+          offers += expired.count;
+          await tx.classWaitlistInvitation.updateMany({
+            where: { waitlistId: { in: ids }, status: WaitlistInvitationStatus.OFFERED },
+            data: { status: WaitlistInvitationStatus.EXPIRED, respondedAt: now },
+          });
+        }
+
+        const dueClassOrders = await tx.serviceOrder.findMany({
+          where: {
+            status: OrderStatus.PENDING_PAYMENT,
+            expiresAt: { lte: now },
+            waitlistInvitation: { is: { status: WaitlistInvitationStatus.ACCEPTED, waitlist: { classId } } },
+          },
+          include: {
+            waitlistInvitation: { include: { waitlist: true } },
+            items: { select: { classRegistrationId: true } },
+            payments: { where: { status: 'PENDING' }, select: { id: true } },
+          },
+        });
+        for (const order of dueClassOrders) {
+          const expired = await tx.serviceOrder.updateMany({
+            where: { id: order.id, status: OrderStatus.PENDING_PAYMENT, expiresAt: { lte: now } },
+            data: { status: OrderStatus.EXPIRED },
+          });
+          if (expired.count !== 1 || !order.waitlistInvitation) continue;
+
+          const paymentIds = order.payments.map(({ id }) => id);
+          if (paymentIds.length > 0) {
+            await tx.payment.updateMany({
+              where: { id: { in: paymentIds }, status: 'PENDING' },
+              data: { status: 'CANCELLED' },
+            });
+            await tx.onlineTransaction.updateMany({
+              where: { paymentId: { in: paymentIds }, status: 'PENDING' },
+              data: { status: 'CANCELLED', processedAt: now },
+            });
+          }
+          const registrationIds = order.items.flatMap((item) => item.classRegistrationId ? [item.classRegistrationId] : []);
+          if (registrationIds.length > 0) {
+            await tx.classRegistration.updateMany({
+              where: { id: { in: registrationIds }, status: RegistrationStatus.PENDING_PAYMENT },
+              data: { status: RegistrationStatus.CANCELLED, cancelledAt: now },
+            });
+          }
+          await tx.classWaitlistInvitation.updateMany({
+            where: { id: order.waitlistInvitation.id, status: WaitlistInvitationStatus.ACCEPTED },
+            data: {
+              status: WaitlistInvitationStatus.PAYMENT_EXPIRED,
+              respondedAt: now,
+              failureReason: 'PAYMENT_EXPIRED',
+            },
+          });
+          await tx.classWaitlist.updateMany({
+            where: { id: order.waitlistInvitation.waitlistId, status: WaitlistStatus.ACCEPTED },
+            data: { status: WaitlistStatus.EXPIRED },
+          });
+          payments += 1;
+        }
         await this.offerNextInTransaction(tx, classId, now);
-        return expired.count;
+        return { offers, payments };
       });
+      expiredCount += expiredInClass.offers;
+      expiredPaymentCount += expiredInClass.payments;
     }
-    return { expiredCount, processedClasses: classIds.length };
+    return { expiredCount, expiredPaymentCount, processedClasses: classIds.length };
   }
 
   async respondToOffer(memberId: number, classId: number, accept: boolean) {
@@ -191,6 +412,7 @@ export class WaitlistService {
           where: { id: offer.id, status: WaitlistStatus.OFFERED },
           data: { status: WaitlistStatus.EXPIRED },
         });
+        await this.transitionLatestInvitation(tx, offer.id, WaitlistInvitationStatus.EXPIRED, now);
         await this.offerNextInTransaction(tx, classId, now);
         return { expired: true as const };
       }
@@ -201,6 +423,7 @@ export class WaitlistService {
           data: { status: WaitlistStatus.CANCELLED },
         });
         if (declined.count !== 1) return { expired: true as const };
+        await this.transitionLatestInvitation(tx, offer.id, WaitlistInvitationStatus.DECLINED, now);
         await this.offerNextInTransaction(tx, classId, now);
         return {
           declined: await tx.classWaitlist.findUnique({
@@ -274,6 +497,13 @@ export class WaitlistService {
       if (accepted.count !== 1) {
         throw new HttpError(409, 'Lời mời vào lớp đã hết hạn.', 'WAITLIST_OFFER_EXPIRED');
       }
+      await this.transitionLatestInvitation(
+        tx,
+        offer.id,
+        WaitlistInvitationStatus.ACCEPTED,
+        now,
+        { orderId: order.id },
+      );
       return {
         waitlist: await tx.classWaitlist.findUnique({
           where: { memberId_classId: { memberId, classId } },
@@ -287,6 +517,70 @@ export class WaitlistService {
     }
     if ('declined' in result) return { waitlist: result.declined, order: null };
     return result;
+  }
+
+  async failAcceptedInvitationInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: number,
+    now: Date,
+  ) {
+    const invitation = await tx.classWaitlistInvitation.findUnique({
+      where: { orderId },
+      include: { waitlist: true },
+    });
+    if (!invitation || invitation.status !== WaitlistInvitationStatus.ACCEPTED) return false;
+
+    const cancelledOrder = await tx.serviceOrder.updateMany({
+      where: { id: orderId, status: OrderStatus.PENDING_PAYMENT },
+      data: { status: OrderStatus.CANCELLED },
+    });
+    if (cancelledOrder.count !== 1) return false;
+
+    const classId = invitation.waitlist.classId;
+    await tx.classRegistration.updateMany({
+      where: {
+        memberId: invitation.waitlist.memberId,
+        classId,
+        status: RegistrationStatus.PENDING_PAYMENT,
+      },
+      data: { status: RegistrationStatus.CANCELLED, cancelledAt: now },
+    });
+    const pendingPayments = await tx.payment.findMany({
+      where: { orderId, status: 'PENDING' },
+      select: { id: true },
+    });
+    const paymentIds = pendingPayments.map(({ id }) => id);
+    if (paymentIds.length > 0) {
+      await tx.payment.updateMany({
+        where: { id: { in: paymentIds }, status: 'PENDING' },
+        data: { status: 'CANCELLED' },
+      });
+      await tx.onlineTransaction.updateMany({
+        where: { paymentId: { in: paymentIds }, status: 'PENDING' },
+        data: { status: 'CANCELLED', processedAt: now },
+      });
+    }
+    await tx.classWaitlistInvitation.updateMany({
+      where: { id: invitation.id, status: WaitlistInvitationStatus.ACCEPTED },
+      data: {
+        status: WaitlistInvitationStatus.PAYMENT_FAILED,
+        respondedAt: now,
+        failureReason: 'PAYMENT_FAILED',
+      },
+    });
+    await tx.classWaitlist.updateMany({
+      where: { id: invitation.waitlistId, status: WaitlistStatus.ACCEPTED },
+      data: { status: WaitlistStatus.EXPIRED },
+    });
+    await this.offerNextInTransaction(tx, classId, now);
+    return true;
+  }
+
+  async markInvitationFulfilled(tx: Prisma.TransactionClient, orderId: number, now: Date) {
+    await tx.classWaitlistInvitation.updateMany({
+      where: { orderId, status: WaitlistInvitationStatus.ACCEPTED },
+      data: { status: WaitlistInvitationStatus.FULFILLED, respondedAt: now },
+    });
   }
 }
 
