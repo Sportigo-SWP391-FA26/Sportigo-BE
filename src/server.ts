@@ -33,11 +33,14 @@ const server = app.listen(env.PORT, () => {
   warmup.unref()
 })
 
-const waitlistExpiryWorker = setInterval(() => {
+const runWaitlistExpiryWorker = () => {
   void waitlistService.expireOffers().catch((error: unknown) => {
     console.error('Failed to expire waitlist offers:', error)
   })
-}, 60_000)
+}
+
+runWaitlistExpiryWorker()
+const waitlistExpiryWorker = setInterval(runWaitlistExpiryWorker, 60_000)
 waitlistExpiryWorker.unref()
 
 async function shutdown() {

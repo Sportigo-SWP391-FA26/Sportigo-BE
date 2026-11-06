@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../../src/app.js'
 import { prisma } from '../../src/lib/prisma.js'
 import { createServiceOrder } from '../../src/modules/finance/finance.service.js'
+import { signVnpay } from '../../src/modules/finance/vnpay.js'
 import waitlistService from '../../src/modules/waitlist/waitlist.service.js'
 import { hasTestDatabase } from '../support/test-database.js'
 import {
@@ -12,6 +13,7 @@ import {
   createManager,
   createMember,
   createPrivateCourse,
+  createReceptionist,
   createRegistration,
   createRoom,
   createSport,
@@ -50,6 +52,9 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       ['post', '/api/bookings/registrations/1/cancel'],
       ['post', '/api/group-classes/1/waitlist'],
       ['post', '/api/group-classes/1/waitlist/respond'],
+      ['get', '/api/waitlist/me'],
+      ['get', '/api/waitlist'],
+      ['get', '/api/waitlist/1/history'],
       ['get', '/api/private-courses'],
       ['post', '/api/private-courses'],
       ['patch', '/api/private-courses/1'],
@@ -279,6 +284,43 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
     })).toBeLessThanOrEqual(1)
   })
 
+  it('prevents a waiting Member from bypassing the waitlist when other capacity becomes free', async () => {
+    const { groupClass } = await createOpenBookingClass(3)
+    const occupants = await Promise.all([createMember(), createMember(), createMember()])
+    const firstWaitingMember = await createMember()
+    const secondWaitingMember = await createMember()
+    const registrations = await Promise.all(occupants.map((member) => createRegistration({
+      memberId: member.id,
+      classId: groupClass.id,
+      status: 'PENDING_PAYMENT',
+    })))
+    for (const member of [firstWaitingMember, secondWaitingMember]) {
+      const joined = await request(app)
+        .post(`/api/group-classes/${groupClass.id}/waitlist`)
+        .set('Authorization', member.auth)
+        .send()
+      expect(joined.status).toBe(201)
+    }
+
+    for (const index of [0, 1]) {
+      const cancelled = await request(app)
+        .post(`/api/bookings/registrations/${registrations[index]!.id}/cancel`)
+        .set('Authorization', occupants[index]!.auth)
+        .send()
+      expect(cancelled.status).toBe(200)
+    }
+    const bypass = await request(app)
+      .post(`/api/bookings/classes/${groupClass.id}/register`)
+      .set('Authorization', secondWaitingMember.auth)
+      .send()
+
+    expect(bypass.status).toBe(409)
+    expect(bypass.body.code).toBe('ALREADY_WAITLISTED')
+    expect(await prisma.classRegistration.count({
+      where: { classId: groupClass.id, status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] } },
+    })).toBeLessThanOrEqual(groupClass.capacity)
+  })
+
   it('promotes one FIFO waitlist offer, expires it idempotently, and serializes expiry against acceptance', async () => {
     const { groupClass } = await createOpenBookingClass(1)
     const cancelledMember = await createMember()
@@ -296,6 +338,35 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
         .send()
       expect(joined.status).toBe(201)
     }
+    const manager = await createManager()
+    const ownWaitlist = await request(app)
+      .get('/api/waitlist/me')
+      .set('Authorization', firstWaitingMember.auth)
+    const otherMemberWaitlist = await request(app)
+      .get('/api/waitlist/me')
+      .set('Authorization', cancelledMember.auth)
+    const managerWaitlists = await request(app)
+      .get(`/api/waitlist?classId=${groupClass.id}&status=WAITING&page=1&limit=10`)
+      .set('Authorization', manager.auth)
+    const managerHistory = await request(app)
+      .get(`/api/waitlist/${ownWaitlist.body.data.items[0].id}/history`)
+      .set('Authorization', manager.auth)
+    const memberForbiddenFromManagerList = await request(app)
+      .get('/api/waitlist')
+      .set('Authorization', firstWaitingMember.auth)
+    const coachForbiddenFromMemberList = await request(app)
+      .get('/api/waitlist/me')
+      .set('Authorization', (await createCoach()).auth)
+
+    expect(ownWaitlist.status).toBe(200)
+    expect(ownWaitlist.body.data.items).toHaveLength(1)
+    expect(otherMemberWaitlist.body.data.items).toHaveLength(0)
+    expect(managerWaitlists.status).toBe(200)
+    expect(managerWaitlists.body.data.items).toHaveLength(2)
+    expect(managerHistory.status).toBe(200)
+    expect(managerHistory.body.data.invitations).toEqual([])
+    expect(memberForbiddenFromManagerList.status).toBe(403)
+    expect(coachForbiddenFromMemberList.status).toBe(403)
 
     const cancelled = await request(app)
       .post(`/api/bookings/registrations/${registration.id}/cancel`)
@@ -340,6 +411,151 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       where: { classId: groupClass.id, memberId: firstWaitingMember.id },
     })).toBe(0)
     expect((await waitlistService.expireOffers()).expiredCount).toBe(0)
+  })
+
+  it('only confirms an accepted waitlist booking after payment succeeds', async () => {
+    const { groupClass } = await createOpenBookingClass(1)
+    const occupyingMember = await createMember()
+    const waitingMember = await createMember()
+    const receptionist = await createReceptionist()
+    const previousCancelledRegistration = await createRegistration({
+      memberId: waitingMember.id,
+      classId: groupClass.id,
+      status: 'CANCELLED',
+    })
+    const registration = await createRegistration({
+      memberId: occupyingMember.id,
+      classId: groupClass.id,
+      status: 'PENDING_PAYMENT',
+    })
+    await request(app)
+      .post(`/api/group-classes/${groupClass.id}/waitlist`)
+      .set('Authorization', waitingMember.auth)
+      .send()
+    await request(app)
+      .post(`/api/bookings/registrations/${registration.id}/cancel`)
+      .set('Authorization', occupyingMember.auth)
+      .send()
+
+    const accepted = await request(app)
+      .post(`/api/group-classes/${groupClass.id}/waitlist/respond`)
+      .set('Authorization', waitingMember.auth)
+      .send({ accept: true })
+    const acceptedRegistrationId = accepted.body.data.registration.id as number
+    const orderId = accepted.body.data.order.id as number
+    expect(accepted.status).toBe(200)
+    expect(acceptedRegistrationId).toBe(previousCancelledRegistration.id)
+    expect(await prisma.classRegistration.findUniqueOrThrow({ where: { id: acceptedRegistrationId } }))
+      .toMatchObject({ status: 'PENDING_PAYMENT' })
+
+    const payment = await request(app)
+      .post(`/api/orders/${orderId}/payments/cash`)
+      .set('Authorization', receptionist.auth)
+      .send({ amount: 1_000 })
+
+    expect(payment.status).toBe(201)
+    expect(await prisma.classRegistration.findUniqueOrThrow({ where: { id: acceptedRegistrationId } }))
+      .toMatchObject({ status: 'CONFIRMED' })
+    expect(await prisma.classWaitlistInvitation.findUniqueOrThrow({ where: { orderId } }))
+      .toMatchObject({ status: 'FULFILLED' })
+  })
+
+  it('releases an accepted waitlist seat after failed payment and offers it to the next Member', async () => {
+    const { groupClass } = await createOpenBookingClass(1)
+    const occupyingMember = await createMember()
+    const firstWaitingMember = await createMember()
+    const nextWaitingMember = await createMember()
+    const registration = await createRegistration({
+      memberId: occupyingMember.id,
+      classId: groupClass.id,
+      status: 'PENDING_PAYMENT',
+    })
+    for (const member of [firstWaitingMember, nextWaitingMember]) {
+      await request(app)
+        .post(`/api/group-classes/${groupClass.id}/waitlist`)
+        .set('Authorization', member.auth)
+        .send()
+    }
+    await request(app)
+      .post(`/api/bookings/registrations/${registration.id}/cancel`)
+      .set('Authorization', occupyingMember.auth)
+      .send()
+    const accepted = await request(app)
+      .post(`/api/group-classes/${groupClass.id}/waitlist/respond`)
+      .set('Authorization', firstWaitingMember.auth)
+      .send({ accept: true })
+    const orderId = accepted.body.data.order.id as number
+    const registrationId = accepted.body.data.registration.id as number
+    const started = await request(app)
+      .post(`/api/orders/${orderId}/payments/vnpay`)
+      .set('Authorization', firstWaitingMember.auth)
+      .send()
+    const payment = await prisma.payment.findUniqueOrThrow({ where: { id: started.body.paymentId } })
+    const callback = {
+      vnp_TxnRef: payment.reference,
+      vnp_Amount: '100000',
+      vnp_ResponseCode: '24',
+      vnp_TransactionStatus: '02',
+      vnp_TransactionNo: 'WAITLIST-FAILED',
+    }
+    const failed = await request(app)
+      .get('/api/payments/vnpay/ipn')
+      .query({ ...callback, vnp_SecureHash: signVnpay(callback) })
+
+    expect(accepted.status).toBe(200)
+    expect(started.status).toBe(201)
+    expect(failed.body.RspCode).toBe('00')
+    expect(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: orderId } })).toMatchObject({ status: 'CANCELLED' })
+    expect(await prisma.classRegistration.findUniqueOrThrow({ where: { id: registrationId } })).toMatchObject({ status: 'CANCELLED' })
+    expect(await prisma.classWaitlistInvitation.findUniqueOrThrow({ where: { orderId } }))
+      .toMatchObject({ status: 'PAYMENT_FAILED', failureReason: 'PAYMENT_FAILED' })
+    expect(await prisma.classWaitlist.findUniqueOrThrow({
+      where: { memberId_classId: { memberId: nextWaitingMember.id, classId: groupClass.id } },
+    })).toMatchObject({ status: 'OFFERED' })
+  })
+
+  it('expires an accepted invitation payment order and releases its seat in the background worker', async () => {
+    const { groupClass } = await createOpenBookingClass(1)
+    const occupyingMember = await createMember()
+    const waitingMember = await createMember()
+    const nextWaitingMember = await createMember()
+    const registration = await createRegistration({
+      memberId: occupyingMember.id,
+      classId: groupClass.id,
+      status: 'PENDING_PAYMENT',
+    })
+    for (const member of [waitingMember, nextWaitingMember]) {
+      await request(app)
+        .post(`/api/group-classes/${groupClass.id}/waitlist`)
+        .set('Authorization', member.auth)
+        .send()
+    }
+    await request(app)
+      .post(`/api/bookings/registrations/${registration.id}/cancel`)
+      .set('Authorization', occupyingMember.auth)
+      .send()
+    const accepted = await request(app)
+      .post(`/api/group-classes/${groupClass.id}/waitlist/respond`)
+      .set('Authorization', waitingMember.auth)
+      .send({ accept: true })
+    const orderId = accepted.body.data.order.id as number
+    const registrationId = accepted.body.data.registration.id as number
+    await prisma.serviceOrder.update({
+      where: { id: orderId },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    })
+
+    const processed = await waitlistService.expireOffers()
+
+    expect(accepted.status).toBe(200)
+    expect(processed.expiredPaymentCount).toBe(1)
+    expect(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: orderId } })).toMatchObject({ status: 'EXPIRED' })
+    expect(await prisma.classRegistration.findUniqueOrThrow({ where: { id: registrationId } })).toMatchObject({ status: 'CANCELLED' })
+    expect(await prisma.classWaitlistInvitation.findUniqueOrThrow({ where: { orderId } }))
+      .toMatchObject({ status: 'PAYMENT_EXPIRED', failureReason: 'PAYMENT_EXPIRED' })
+    expect(await prisma.classWaitlist.findUniqueOrThrow({
+      where: { memberId_classId: { memberId: nextWaitingMember.id, classId: groupClass.id } },
+    })).toMatchObject({ status: 'OFFERED' })
   })
 
   it('generates and persists all actual weekly class-session records through the inclusive end date', async () => {

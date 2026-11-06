@@ -5,6 +5,8 @@ import { HttpError } from '../../lib/http-error.js'
 import { createPaymentUrl, type VnpayParams, verifyVnpay } from './vnpay.js'
 import { calculateDiscount, calculateRefundable, calculateRemaining, isFullyRefunded, toMoney } from './finance.math.js'
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
+import waitlistService from '../waitlist/waitlist.service.js'
+import { lockGroupClass } from '../../lib/group-class-lock.js'
 
 // note(FR-54): định dạng tiền cho nội dung thông báo
 const vnd = (value: Prisma.Decimal) => `${Number(value.toFixed(0)).toLocaleString('vi-VN')} đ`
@@ -195,13 +197,27 @@ async function ensureMethod(db: Db, code: string, name: string, isOnline: boolea
 }
 
 async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) {
-  const order = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude })
+  let order = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude })
+  const invitation = await tx.classWaitlistInvitation.findUnique({
+    where: { orderId },
+    include: { waitlist: { select: { classId: true } } },
+  })
+  if (invitation?.status === 'ACCEPTED') {
+    if (!await lockGroupClass(tx, invitation.waitlist.classId)) {
+      throw new HttpError(404, 'Lớp học không tồn tại', 'CLASS_NOT_FOUND')
+    }
+    order = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude })
+    if (order.status === 'EXPIRED' || order.status === 'CANCELLED') {
+      throw new HttpError(409, 'Lời mời đã hết hạn hoặc bị hủy; khoản thanh toán không thể xác nhận đăng ký.', 'WAITLIST_PAYMENT_EXPIRED')
+    }
+  }
   if (remaining(order).greaterThan(0)) return order
   if (order.status !== 'PAID') await tx.serviceOrder.update({ where: { id: orderId }, data: { status: 'PAID', paidAt: new Date() } })
   for (const item of order.items) {
     if (item.classRegistrationId) await tx.classRegistration.update({ where: { id: item.classRegistrationId }, data: { status: 'CONFIRMED' } })
     if (item.privateEnrollmentId) await tx.privateCourseEnrollment.update({ where: { id: item.privateEnrollmentId }, data: { status: 'ACTIVE' } })
   }
+  await waitlistService.markInvitationFulfilled(tx, orderId, new Date())
   const topUpItem = order.items.find((item) => item.itemType === 'WALLET_TOP_UP')
   if (topUpItem) {
     const idempotencyKey = `WALLET_TOP_UP:${order.id}`
@@ -311,12 +327,22 @@ export async function processVnpayIpn(params: VnpayParams) {
   if (!payment) return { RspCode: '01', Message: 'Order not found' }
   if (!money(params.vnp_Amount ?? 0).div(100).equals(payment.amount)) return { RspCode: '04', Message: 'Invalid amount' }
   if (payment.status === 'SUCCESS') return { RspCode: '02', Message: 'Order already confirmed' }
+  const invitation = await prisma.classWaitlistInvitation.findUnique({
+    where: { orderId: payment.orderId },
+    select: { status: true, waitlist: { select: { classId: true } } },
+  })
   const processed = await prisma.$transaction(async (tx) => {
     const success = params.vnp_ResponseCode === '00' && params.vnp_TransactionStatus === '00'
+    if (!success && invitation?.status === 'ACCEPTED' && !await lockGroupClass(tx, invitation.waitlist.classId)) {
+      throw new HttpError(404, 'Lớp học không tồn tại', 'CLASS_NOT_FOUND')
+    }
     const claimed = await tx.payment.updateMany({ where: { id: payment.id, status: 'PENDING' }, data: { status: success ? 'SUCCESS' : 'FAILED', paidAt: success ? new Date() : undefined } })
     if (claimed.count !== 1) return false
     await tx.onlineTransaction.update({ where: { paymentId: payment.id }, data: { providerTransactionId: params.vnp_TransactionNo, responsePayload: params, status: success ? 'SUCCESS' : 'FAILED', processedAt: new Date() } })
     if (success) await finalizePaidOrder(tx, payment.orderId)
+    else if (invitation?.status === 'ACCEPTED') {
+      await waitlistService.failAcceptedInvitationInTransaction(tx, payment.orderId, new Date())
+    }
     return true
   })
   if (!processed) return { RspCode: '02', Message: 'Order already confirmed' }

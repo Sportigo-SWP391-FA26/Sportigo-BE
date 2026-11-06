@@ -24,7 +24,8 @@ const { prisma, refundClassRegistrationToWallet, offerNextInTransaction } = vi.h
     serviceOrder: { create: vi.fn(), updateMany: vi.fn() },
     promotionReservation: { updateMany: vi.fn() },
     orderItem: { create: vi.fn() },
-    classWaitlist: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    classWaitlist: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    classWaitlistInvitation: { updateMany: vi.fn() },
     wallet: { create: vi.fn(), update: vi.fn(), upsert: vi.fn() },
     walletTransaction: { create: vi.fn() },
     notification: { createMany: vi.fn() },
@@ -42,6 +43,7 @@ vi.mock('../../src/modules/waitlist/waitlist.service.js', () => ({
 }))
 
 vi.mock('@prisma/client', () => ({
+  Prisma: { PrismaClientKnownRequestError: Error },
   PrismaClient: vi.fn(function PrismaClientMock() {
     return prisma
   }),
@@ -75,6 +77,9 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
     prisma.$queryRaw.mockResolvedValue([{ id: 1 }])
     prisma.member.findUnique.mockResolvedValue({ userId: 2 })
     prisma.classWaitlist.updateMany.mockResolvedValue({ count: 0 })
+    prisma.classWaitlist.findUnique.mockResolvedValue(null)
+    prisma.classWaitlist.findMany.mockResolvedValue([])
+    prisma.classWaitlistInvitation.updateMany.mockResolvedValue({ count: 0 })
     prisma.notification.createMany.mockResolvedValue({ count: 0 })
     refundClassRegistrationToWallet.mockResolvedValue({ amount: 500, alreadyProcessed: false })
     offerNextInTransaction.mockResolvedValue(null)
@@ -191,6 +196,24 @@ describe('FR-21–FR-24 / FR-28 Group class booking', () => {
       _count: { registrations: 1 },
     })
     await expect(service.registerClass(2, 1)).rejects.toThrow('hết chỗ')
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('prevents a Member from booking while their waitlist entry is active', async () => {
+    prisma.groupClass.findUnique.mockResolvedValue({
+      id: 1,
+      status: 'OPEN',
+      registrationOpenAt: new Date(Date.now() - 60_000),
+      registrationCloseAt: new Date(Date.now() + 60_000),
+      startDate: new Date(Date.now() + 120_000),
+      capacity: 2,
+      _count: { registrations: 1 },
+    })
+    prisma.classWaitlist.findUnique.mockResolvedValue({ id: 9, status: 'WAITING' })
+
+    await expect(service.registerClass(2, 1)).rejects.toMatchObject({
+      code: 'ALREADY_WAITLISTED',
+    })
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 

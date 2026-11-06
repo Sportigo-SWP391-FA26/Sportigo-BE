@@ -221,6 +221,23 @@ export const flow2Paths = {
   '/group-classes/{id}/waitlist/respond': {
     post: operation('Waitlist', 'Chấp nhận hoặc từ chối lời mời waitlist', { parameters: [id()], requestBody: jsonBody(['accept'], { accept: { type: 'boolean' } }), responses: ok }),
   },
+  '/waitlist/me': {
+    get: operation('Waitlist', 'Member xem waitlist và lời mời của chính mình', { responses: ok }),
+  },
+  '/waitlist': {
+    get: operation('Waitlist', 'Center Manager xem waitlist toàn trung tâm', {
+      parameters: [
+        query('classId', { type: 'integer', minimum: 1 }),
+        query('status', { type: 'string', enum: ['WAITING', 'OFFERED', 'ACCEPTED', 'EXPIRED', 'CANCELLED'] }),
+        query('page', { type: 'integer', minimum: 1 }),
+        query('limit', { type: 'integer', minimum: 1, maximum: 100 }),
+      ],
+      responses: ok,
+    }),
+  },
+  '/waitlist/{id}/history': {
+    get: operation('Waitlist', 'Center Manager xem lịch sử lời mời của waitlist', { parameters: [id()], responses: ok }),
+  },
   '/private-courses': {
     get: operation('Private Courses', 'Danh sách khóa 1–1 đang cung cấp', { parameters: [query('sportId', { type: 'integer' })], responses: ok }),
     post: operation('Private Courses', 'Tạo khóa 1–1 nhiều buổi', { requestBody: jsonBody(['sportId', 'name', 'totalSessions', 'sessionDurationMinutes', 'validityDays', 'price'], { sportId: { type: 'integer' }, name: { type: 'string' }, description: { type: 'string' }, totalSessions: { type: 'integer', minimum: 2 }, sessionDurationMinutes: { type: 'integer', minimum: 1 }, validityDays: { type: 'integer', minimum: 1 }, price: { type: 'number', minimum: 0 } }), responses: created }),

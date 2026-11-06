@@ -357,7 +357,7 @@ model ClassRegistration {
   price        Decimal              @db.Decimal(12, 2)
   groupClass   GroupClass           @relation(fields: [classId], references: [id])
   member       Member               @relation(fields: [memberId], references: [userId])
-  orderItem    OrderItem?
+  orderItems   OrderItem[]
   assessments  ProgressAssessment[]
   attendances  SessionAttendance[]
 
@@ -366,18 +366,37 @@ model ClassRegistration {
 }
 
 model ClassWaitlist {
-  id             Int            @id @default(autoincrement())
+  id             Int                       @id @default(autoincrement())
   memberId       Int
   classId        Int
-  status         WaitlistStatus @default(WAITING)
-  joinedAt       DateTime       @default(now())
+  status         WaitlistStatus            @default(WAITING)
+  joinedAt       DateTime                  @default(now())
   offeredAt      DateTime?
   offerExpiresAt DateTime?
-  groupClass     GroupClass     @relation(fields: [classId], references: [id])
-  member         Member         @relation(fields: [memberId], references: [userId])
+  groupClass     GroupClass                @relation(fields: [classId], references: [id])
+  member         Member                    @relation(fields: [memberId], references: [userId])
+  invitations    ClassWaitlistInvitation[]
 
   @@unique([memberId, classId])
   @@index([classId, status, joinedAt])
+}
+
+model ClassWaitlistInvitation {
+  id            Int                      @id @default(autoincrement())
+  waitlistId    Int
+  status        WaitlistInvitationStatus @default(OFFERED)
+  offeredAt     DateTime                 @default(now())
+  expiresAt     DateTime
+  respondedAt   DateTime?
+  orderId       Int?                     @unique
+  failureReason String?                  @db.VarChar(40)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  waitlist      ClassWaitlist            @relation(fields: [waitlistId], references: [id], onDelete: Cascade)
+  order         ServiceOrder?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([waitlistId, createdAt])
+  @@index([status, expiresAt])
 }
 
 model SessionAttendance {
@@ -631,25 +650,26 @@ model RequestAssignment {
 }
 
 model ServiceOrder {
-  id                   Int                   @id @default(autoincrement())
+  id                   Int                      @id @default(autoincrement())
   memberId             Int
   promotionId          Int?
-  orderNumber          String                @unique @db.VarChar(40)
-  originalAmount       Decimal               @db.Decimal(12, 2)
-  discountAmount       Decimal               @default(0) @db.Decimal(12, 2)
-  finalAmount          Decimal               @db.Decimal(12, 2)
-  status               OrderStatus           @default(CART)
+  orderNumber          String                   @unique @db.VarChar(40)
+  originalAmount       Decimal                  @db.Decimal(12, 2)
+  discountAmount       Decimal                  @default(0) @db.Decimal(12, 2)
+  finalAmount          Decimal                  @db.Decimal(12, 2)
+  status               OrderStatus              @default(CART)
   expiresAt            DateTime?
   paidAt               DateTime?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
   invoice              Invoice?
   items                OrderItem[]
   payments             Payment[]
   promotionUsage       PromotionUsage?
   promotionReservation PromotionReservation?
-  member               Member                @relation(fields: [memberId], references: [userId])
-  promotion            Promotion?            @relation(fields: [promotionId], references: [id])
+  waitlistInvitation   ClassWaitlistInvitation?
+  member               Member                   @relation(fields: [memberId], references: [userId])
+  promotion            Promotion?               @relation(fields: [promotionId], references: [id])
 
   @@index([memberId, status, createdAt])
 }
@@ -657,7 +677,7 @@ model ServiceOrder {
 model OrderItem {
   id                  Int                      @id @default(autoincrement())
   orderId             Int
-  classRegistrationId Int?                     @unique
+  classRegistrationId Int?
   privateEnrollmentId Int?                     @unique
   itemType            OrderItemType
   itemNameSnapshot    String                   @db.VarChar(200)
@@ -1033,6 +1053,16 @@ enum WaitlistStatus {
   ACCEPTED
   EXPIRED
   CANCELLED
+}
+
+enum WaitlistInvitationStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  PAYMENT_FAILED
+  PAYMENT_EXPIRED
+  FULFILLED
 }
 
 enum AttendanceStatus {

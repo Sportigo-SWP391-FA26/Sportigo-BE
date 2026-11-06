@@ -28,20 +28,22 @@ export class BookingService {
             },
           },
         },
-        orderItem: {
+        orderItems: {
           include: {
             order: {
               select: { id: true, orderNumber: true, status: true, finalAmount: true, expiresAt: true },
             },
           },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
       orderBy: { registeredAt: 'desc' },
     });
 
-    return registrations.map(({ orderItem, ...registration }) => ({
+    return registrations.map(({ orderItems, ...registration }) => ({
       ...registration,
-      order: orderItem?.order ?? null,
+      order: orderItems[0]?.order ?? null,
     }));
   }
 
@@ -286,6 +288,14 @@ export class BookingService {
       throw new HttpError(409, 'Lớp học đã bắt đầu diễn ra, không thể đăng ký mới.', 'CLASS_ALREADY_STARTED');
     }
 
+    const existingWaitlist = await prisma.classWaitlist.findUnique({
+      where: { memberId_classId: { memberId, classId } },
+      select: { status: true },
+    });
+    if (existingWaitlist && ['WAITING', 'OFFERED', 'ACCEPTED'].includes(existingWaitlist.status)) {
+      throw new HttpError(409, 'Bạn đang có một vị trí hoạt động trong danh sách chờ lớp này.', 'ALREADY_WAITLISTED');
+    }
+
     // FR-24: Kiểm tra sức chứa & số chỗ còn lại (Capacity check)
     const currentOccupied = groupClass._count.registrations;
     if (currentOccupied >= groupClass.capacity) {
@@ -312,6 +322,13 @@ export class BookingService {
     return withTransactionRetry(() => prisma.$transaction(async (tx) => {
       if (!await lockGroupClass(tx, classId)) {
         throw new HttpError(404, 'Lớp học không tồn tại trong hệ thống.', 'CLASS_NOT_FOUND');
+      }
+      const lockedWaitlist = await tx.classWaitlist.findUnique({
+        where: { memberId_classId: { memberId, classId } },
+        select: { status: true },
+      });
+      if (lockedWaitlist && ['WAITING', 'OFFERED', 'ACCEPTED'].includes(lockedWaitlist.status)) {
+        throw new HttpError(409, 'Bạn đang có một vị trí hoạt động trong danh sách chờ lớp này.', 'ALREADY_WAITLISTED');
       }
       await waitlistService.offerNextInTransaction(tx, classId, now);
       const activeOffer = await tx.classWaitlist.findFirst({
@@ -577,7 +594,7 @@ export class BookingService {
           },
           waitlists: {
             where: { status: { in: ['WAITING', 'OFFERED'] } },
-            select: { memberId: true },
+            select: { id: true, memberId: true },
           },
         },
       });
@@ -621,6 +638,13 @@ export class BookingService {
           status: { in: ['WAITING', 'OFFERED'] },
         },
         data: { status: 'CANCELLED' },
+      });
+      await tx.classWaitlistInvitation.updateMany({
+        where: {
+          waitlistId: { in: groupClass.waitlists.map((item) => item.id) },
+          status: 'OFFERED',
+        },
+        data: { status: 'EXPIRED', respondedAt: new Date(), failureReason: 'CLASS_CANCELLED' },
       });
       await tx.serviceOrder.updateMany({
         where: {
