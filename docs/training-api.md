@@ -72,7 +72,7 @@ Tiền tố chung `/api`.
 {
   "records": [
     { "classRegistrationId": 31, "status": "PRESENT" },
-    { "classRegistrationId": 32, "status": "LATE", "note": "Đến muộn 10 phút" }
+    { "classRegistrationId": 32, "status": "ABSENT", "note": "Báo nghỉ ốm" }
   ]
 }
 ```
@@ -110,13 +110,13 @@ Reorder phải gửi đủ mọi mục của một tuần/buổi, với thứ t�
   "assessmentDate": "2026-10-10",
   "coachComment": "Kỹ thuật thở tiến bộ rõ, cần tăng sức bền.",
   "metrics": { "speed": 7, "technique": 8 },
-  "score": 8.5,
+  "score": 7.8,
   "recommendation": "Bơi thêm 2 buổi sức bền mỗi tuần",
   "nextAssessmentDate": "2026-11-10"
 }
 ```
 
-Gửi đúng một trong `classRegistrationId` hoặc `privateEnrollmentId`. Response có `context.type` là `GROUP_CLASS` hoặc `PRIVATE_COURSE`.
+Gửi đúng một trong `classRegistrationId` hoặc `privateEnrollmentId`. Response có `context.type` là `GROUP_CLASS` hoặc `PRIVATE_COURSE`, và `level` là mức đánh giá tính từ `score` (xem mục 9).
 
 **FR-53** `GET /api/members/me/training` trả `{ "planAssignments": [...], "assessments": [...] }`. Mỗi assignment kèm giáo án, các mục, khóa 1-1 và Coach.
 
@@ -177,6 +177,8 @@ Dữ liệu dùng chung của module nằm ở `training.common.ts` (thông báo
 - Chỉ đánh giá được khóa 1-1 đang `ACTIVE` hoặc đã `COMPLETED`, và chỉ đánh giá được registration `CONFIRMED`.
 - Ở `GET /progress-assessments`, Coach chỉ thấy đánh giá do chính mình ghi.
 - FR-53 chỉ hiển thị gán `ACTIVE`/`COMPLETED`; gán `CANCELLED` bị ẩn.
+- Điểm danh chỉ ghi `PRESENT` (Có mặt) hoặc `ABSENT` (Vắng); đến muộn ghi vào `note`. Enum trong DB vẫn giữ `LATE`, `EXCUSED` vì module khác còn dùng, nên lọc lịch sử vẫn nhận 4 giá trị để đọc dữ liệu cũ. Khi tính chuyên cần, dữ liệu cũ `LATE` tính là Có mặt, `EXCUSED` tính là Vắng.
+- Điểm tổng `score` chấm theo **thang 10** (0–10, tùy chọn; lớn hơn 10 trả 400). Mức đánh giá tính ở backend trong `src/modules/training/assessment-level.ts`: `EXCELLENT` 8,5–10 (Xuất sắc), `GOOD` 7–8,4 (Khá), `AVERAGE` 5–6,9 (Trung bình), `NEEDS_IMPROVEMENT` 0–4,9 (Cần cải thiện). Điểm nhiều chữ số thập phân thuộc mức có `min` ≤ điểm (8,45 là Khá). Không chấm điểm thì `level = null`. `GET /members/me/training` trả kèm `scoreLevels`. Dữ liệu lỡ chấm theo thang 100 sửa bằng `npx tsx prisma/rescale-assessment-scores.ts` (xem trước, thêm `--apply` để ghi).
 
 ## 10. Mâu thuẫn tài liệu và việc cần nhóm quyết định
 

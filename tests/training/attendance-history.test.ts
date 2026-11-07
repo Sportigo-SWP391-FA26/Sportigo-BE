@@ -198,8 +198,8 @@ describe.skipIf(!hasTestDatabase)('FR-48 Lịch sử điểm danh', () => {
 
     const summary = await readSheet(response.body, 'Tổng hợp theo học viên')
     const first = summary.find((row) => row[0] === `MEM-${s.members[0]!.id}`)!
-    // Học viên 1: 1 Có mặt + 1 Muộn trên 2 buổi → chuyên cần 100%
-    expect(first.slice(2)).toEqual([1, 1, 0, 0, 2, 1])
+    // Học viên 1: 1 Có mặt + 1 Muộn (dữ liệu cũ, tính là Có mặt) → Có mặt 2, Vắng 0, 2 buổi, chuyên cần 100%
+    expect(first.slice(2)).toEqual([2, 0, 2, 1])
   })
 
   it('Xuất Excel: dùng cùng bộ lọc với danh sách (Manager lọc trạng thái)', async () => {

@@ -15,6 +15,7 @@ import {
   toSkipTake,
 } from './training.common.js'
 import { invalidateMemberTrainingCache } from './member-training-cache.js'
+import { toScoreLevel } from './assessment-level.js'
 
 // Khóa 1-1 đã kích hoạt (đang học hoặc đã học xong) mới được đánh giá
 const ASSESSABLE_ENROLLMENT: EnrollmentStatus[] = ['ACTIVE', 'COMPLETED']
@@ -46,6 +47,7 @@ export function toAssessment(row: AssessmentRow) {
     id: row.id,
     assessmentDate: toDateOnly(row.assessmentDate),
     score: row.score,
+    level: toScoreLevel(row.score),
     metrics: row.metrics,
     coachComment: row.coachComment,
     recommendation: row.recommendation,

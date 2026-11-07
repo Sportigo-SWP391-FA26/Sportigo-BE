@@ -29,7 +29,8 @@ export const createAssessmentSchema = z
         const count = Object.keys(metrics).length
         return count >= 1 && count <= 30
       }, 'metrics phải có từ 1 đến 30 chỉ số'),
-    score: z.number().min(0).max(100).optional(),
+    // Điểm tổng thang 10 (FR-52); mức đánh giá tính trong assessment-level.ts
+    score: z.number().min(0).max(10, 'Điểm tổng từ 0 đến 10').optional(),
     recommendation: z.string().trim().max(2000).optional(),
     nextAssessmentDate: z.iso.date().optional(),
   })

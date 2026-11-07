@@ -297,7 +297,7 @@ async function main() {
     }
     await prisma.planPrivateEnrollment.upsert({ where: { enrollmentId_workoutPlanId: { enrollmentId: enrollments[index].id, workoutPlanId: plan.id } }, update: { assignedById: data.createdById, status: 'ACTIVE' }, create: { enrollmentId: enrollments[index].id, workoutPlanId: plan.id, assignedById: data.createdById, status: 'ACTIVE' } })
     const assessment = await prisma.progressAssessment.findFirst({ where: { memberId: members[index].userId, privateEnrollmentId: enrollments[index].id } })
-    const assessmentData = { memberId: members[index].userId, coachId: data.createdById, privateEnrollmentId: enrollments[index].id, assessmentDate: daysFromNow(-1), score: 78 + index * 4, metrics: { endurance: 75 + index * 3, technique: 72 + index * 4, attendance: 90 }, coachComment: 'Tiến độ tốt, kỹ thuật ổn định và tuân thủ lịch tập.', recommendation: 'Duy trì hai buổi mỗi tuần và tăng dần cường độ.', nextAssessmentDate: daysFromNow(28) }
+    const assessmentData = { memberId: members[index].userId, coachId: data.createdById, privateEnrollmentId: enrollments[index].id, assessmentDate: daysFromNow(-1), score: (78 + index * 4) / 10, metrics: { endurance: 75 + index * 3, technique: 72 + index * 4, attendance: 90 }, coachComment: 'Tiến độ tốt, kỹ thuật ổn định và tuân thủ lịch tập.', recommendation: 'Duy trì hai buổi mỗi tuần và tăng dần cường độ.', nextAssessmentDate: daysFromNow(28) }
     if (assessment) await prisma.progressAssessment.update({ where: { id: assessment.id }, data: assessmentData })
     else await prisma.progressAssessment.create({ data: assessmentData })
   }

@@ -64,15 +64,27 @@ describe.skipIf(!hasTestDatabase)('FR-52 Đánh giá tiến độ', () => {
     const response = await create({
       memberId: s.members[0]!.id,
       classRegistrationId: s.registrations[0]!.id,
-      score: 8.5,
+      score: 7.8,
     })
 
     expect(response.status).toBe(201)
+    expect(response.body.level).toBe('GOOD')
     expect(response.body.context.type).toBe('GROUP_CLASS')
     expect(response.body.context.class.id).toBe(s.groupClass.id)
     expect(response.body.coach.id).toBe(s.coach.id)
     expect(response.body.assessmentDate).toBe(centerDate())
     expect(response.body.metrics).toEqual({ speed: 7, technique: 8 })
+  })
+
+  it('FR-52: Điểm tổng theo thang 10, lớn hơn 10 bị từ chối', async () => {
+    const response = await create({
+      memberId: s.members[0]!.id,
+      classRegistrationId: s.registrations[0]!.id,
+      score: 10.5,
+    })
+
+    expect(response.status).toBe(400)
+    expect(JSON.stringify(response.body.details)).toContain('Điểm tổng từ 0 đến 10')
   })
 
   it('FR-52 / BR-46: Coach đánh giá học viên khóa 1-1 mình phụ trách', async () => {
@@ -82,6 +94,8 @@ describe.skipIf(!hasTestDatabase)('FR-52 Đánh giá tiến độ', () => {
     })
 
     expect(response.status).toBe(201)
+    // Không chấm Điểm tổng (tùy chọn) thì chưa có mức
+    expect(response.body.level).toBeNull()
     expect(response.body.context.type).toBe('PRIVATE_COURSE')
     expect(response.body.context.privateEnrollmentId).toBe(enrollmentId)
   })

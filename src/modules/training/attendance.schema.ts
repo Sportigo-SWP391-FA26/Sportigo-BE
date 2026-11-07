@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { idSchema, paginationSchema } from './training.common.js'
 
+// Lọc lịch sử vẫn nhận đủ 4 giá trị để đọc dữ liệu cũ (LATE, EXCUSED)
 export const attendanceStatusSchema = z.enum([
   'PRESENT',
   'ABSENT',
@@ -8,13 +9,18 @@ export const attendanceStatusSchema = z.enum([
   'EXCUSED',
 ])
 
+// FR-47: Coach chỉ ghi Có mặt hoặc Vắng; enum trong DB giữ nguyên vì module khác còn dùng
+export const markableStatusSchema = z.enum(['PRESENT', 'ABSENT'], {
+  message: 'Chỉ ghi được Có mặt (PRESENT) hoặc Vắng (ABSENT)',
+})
+
 export const markAttendanceSchema = z
   .object({
     records: z
       .array(
         z.object({
           classRegistrationId: z.number().int().positive(),
-          status: attendanceStatusSchema,
+          status: markableStatusSchema,
           note: z.string().trim().max(500).optional(),
         }),
       )

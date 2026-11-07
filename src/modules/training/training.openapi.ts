@@ -154,7 +154,8 @@ const assignmentExample = {
 const assessmentExample = {
   id: 11,
   assessmentDate: '2026-10-10',
-  score: '8.5',
+  score: '7.8',
+  level: 'GOOD',
   metrics: { speed: 7, technique: 8 },
   coachComment: 'Kỹ thuật thở tiến bộ rõ, cần tăng sức bền.',
   recommendation: 'Bơi thêm 2 buổi sức bền mỗi tuần',
@@ -225,13 +226,14 @@ export const trainingPaths = {
       summary: 'FR-47: Coach điểm danh hàng loạt cho một buổi học',
       description:
         'Chỉ Coach phụ trách lớp. Upsert theo cặp registration–session (BR-43), ' +
-        'chỉ nhận registration CONFIRMED của đúng lớp (BR-42). Toàn bộ chạy trong một transaction.',
+        'chỉ nhận registration CONFIRMED của đúng lớp (BR-42). Toàn bộ chạy trong một transaction. ' +
+        'status chỉ nhận PRESENT hoặc ABSENT (ghi đến muộn vào note); LATE/EXCUSED chỉ còn ở dữ liệu cũ.',
       security,
       parameters: [pathId('ID buổi học (ClassSession)')],
       requestBody: jsonBody(markAttendanceSchema, {
         records: [
           { classRegistrationId: 31, status: 'PRESENT' },
-          { classRegistrationId: 32, status: 'LATE', note: 'Đến muộn 10 phút' },
+          { classRegistrationId: 32, status: 'ABSENT', note: 'Báo nghỉ ốm' },
         ],
       }),
       responses: {
@@ -669,7 +671,9 @@ export const trainingPaths = {
       description:
         'Gửi đúng một ngữ cảnh: classRegistrationId (registration CONFIRMED thuộc lớp Coach phụ trách) ' +
         'hoặc privateEnrollmentId (enrollment ACTIVE/COMPLETED của Coach). Ngữ cảnh phải thuộc memberId. ' +
-        'assessmentDate (YYYY-MM-DD) không được ở tương lai theo giờ trung tâm.',
+        'assessmentDate (YYYY-MM-DD) không được ở tương lai theo giờ trung tâm. ' +
+        'score (thang 10, 0–10) tùy chọn; response có level theo ngưỡng: EXCELLENT ≥ 8.5, GOOD ≥ 7, AVERAGE ≥ 5, ' +
+        'NEEDS_IMPROVEMENT < 5, null khi không chấm điểm.',
       security,
       requestBody: jsonBody(createAssessmentSchema, {
         memberId: 12,
@@ -677,7 +681,7 @@ export const trainingPaths = {
         assessmentDate: '2026-10-10',
         coachComment: 'Kỹ thuật thở tiến bộ rõ, cần tăng sức bền.',
         metrics: { speed: 7, technique: 8 },
-        score: 8.5,
+        score: 7.8,
         recommendation: 'Bơi thêm 2 buổi sức bền mỗi tuần',
         nextAssessmentDate: '2026-11-10',
       }),
@@ -712,7 +716,8 @@ export const trainingPaths = {
       summary: 'FR-53: Giáo án được gán và đánh giá tiến độ của chính Member',
       description:
         'Chỉ MEMBER; id lấy từ token, không nhận id từ client. Chỉ đọc. ' +
-        'planAssignments gồm gán ACTIVE/COMPLETED kèm mục giáo án; cả hai danh sách sắp theo thời gian giảm dần.',
+        'planAssignments gồm gán ACTIVE/COMPLETED kèm mục giáo án; cả hai danh sách sắp theo thời gian giảm dần. ' +
+        'scoreLevels là bảng ngưỡng mức đánh giá để hiển thị chú thích.',
       security,
       responses: {
         '200': ok('Dữ liệu tập luyện của Member', {
@@ -750,6 +755,12 @@ export const trainingPaths = {
             },
           ],
           assessments: [assessmentExample],
+          scoreLevels: [
+            { level: 'EXCELLENT', label: 'Xuất sắc', min: 8.5, max: 10 },
+            { level: 'GOOD', label: 'Khá', min: 7, max: 8.4 },
+            { level: 'AVERAGE', label: 'Trung bình', min: 5, max: 6.9 },
+            { level: 'NEEDS_IMPROVEMENT', label: 'Cần cải thiện', min: 0, max: 4.9 },
+          ],
         }),
         ...authErrors,
       },

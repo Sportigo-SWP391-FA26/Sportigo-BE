@@ -127,6 +127,13 @@ describe.skipIf(!hasTestDatabase)('FR-53 Giáo án & tiến độ của tôi', (
       ids.olderAssessment,
     ])
     expect(body.assessments[0]!.context.type).toBe('PRIVATE_COURSE')
+    // Bảng ngưỡng đi kèm để màn Member vẽ chú thích
+    expect(response.body.scoreLevels.map((entry: { level: string }) => entry.level)).toEqual([
+      'EXCELLENT',
+      'GOOD',
+      'AVERAGE',
+      'NEEDS_IMPROVEMENT',
+    ])
   })
 
   it('FR-53: giáo án đã hủy gán không hiển thị', async () => {
