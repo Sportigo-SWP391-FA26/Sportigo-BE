@@ -59,7 +59,7 @@ async function main() {
         privateEnrollmentId: enrollment.id,
         assessmentDate: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000),
         score: daysAgo === 3 ? 8.2 : 6.8,
-        metrics: { speed: daysAgo === 3 ? 8 : 6, endurance: daysAgo === 3 ? 7 : 5 },
+        metrics: { 'Tốc độ (1–10)': daysAgo === 3 ? 8 : 6, 'Sức bền (1–10)': daysAgo === 3 ? 7 : 5 },
         coachComment: daysAgo === 3 ? 'Tiến bộ tốt, giữ đều nhịp thở.' : 'Cần ổn định kỹ thuật chân.',
         recommendation: 'Tiếp tục theo giáo án hiện tại.',
       },
