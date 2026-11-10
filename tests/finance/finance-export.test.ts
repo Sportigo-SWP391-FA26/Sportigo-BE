@@ -7,6 +7,7 @@ describe('finance exports', () => {
     const revenue = await toRevenueWorkbook({
       period: { from: new Date('2026-11-01T00:00:00+07:00'), to: new Date('2026-11-30T23:59:59+07:00') },
       filters: { channel: null, itemType: null }, gross: 1000, discount: 50, refunds: 100, net: 900, transactions: 1, walletTopUps: 500,
+      bySport: [{ sportId: 1, name: 'Bơi lội', orders: 1, transactions: 1, gross: 1000, discount: 50, refunds: 100, net: 900 }],
       byChannel: { ONLINE: 900 }, byService: { GROUP_CLASS: { orders: 1, transactions: 1, gross: 1000, discount: 50, refunds: 100, net: 900 } },
       payments: [{
         id: 1, orderId: 1, paymentMethodId: 1, collectedById: null, reference: 'VNP-001', amount: 1000 as never, channel: 'ONLINE', status: 'PARTIALLY_REFUNDED', paidAt: new Date('2026-11-05'), createdAt: new Date('2026-11-05'),
