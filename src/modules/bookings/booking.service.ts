@@ -114,7 +114,7 @@ export class BookingService {
    * FR-22: Xem chi tiết lớp nhóm, lịch buổi học, học phí và số chỗ còn lại
    */
   async getClassDetail(classId: number) {
-    const groupClass = await prisma.groupClass.findUnique({
+    const [groupClass, pendingCount] = await Promise.all([prisma.groupClass.findUnique({
       where: { id: classId, status: ClassStatus.OPEN },
       include: {
         sport: true,
@@ -134,16 +134,15 @@ export class BookingService {
           },
         },
       },
-    });
+    }), prisma.classRegistration.count({
+      where: { classId, status: RegistrationStatus.PENDING_PAYMENT },
+    })]);
 
     if (!groupClass) {
       throw new HttpError(404, 'Không tìm thấy thông tin lớp học.', 'CLASS_NOT_FOUND');
     }
 
     const confirmedCount = groupClass._count.registrations;
-    const pendingCount = await prisma.classRegistration.count({
-      where: { classId, status: RegistrationStatus.PENDING_PAYMENT },
-    });
     const occupiedCount = confirmedCount + pendingCount;
     const remainingSeats = groupClass.capacity - occupiedCount;
 

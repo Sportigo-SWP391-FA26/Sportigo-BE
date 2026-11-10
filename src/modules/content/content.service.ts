@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { audit } from '../../lib/audit.js'
 import { HttpError } from '../../lib/http-error.js'
+import { KeyedReadCache } from '../../lib/read-cache.js'
 
 type ContentKind = 'heroes' | 'facilities' | 'partners'
 
@@ -222,22 +223,14 @@ async function loadMemberHome(userId: number) {
 }
 
 type MemberHomeResult = Awaited<ReturnType<typeof loadMemberHome>>
-const memberHomeCache = new Map<number, { expiresAt: number; promise: Promise<MemberHomeResult> }>()
+const memberHomeCache = new KeyedReadCache<MemberHomeResult>(30_000)
 
 /**
  * Trang chủ chỉ tổng hợp dữ liệu đọc. Cache ngắn hạn đồng thời gộp các request
  * trùng nhau từ navbar/navigation, giảm độ trễ Supabase mà vẫn giữ lịch mới.
  */
 export function getMemberHome(userId: number): Promise<MemberHomeResult> {
-  const cached = memberHomeCache.get(userId)
-  if (cached && cached.expiresAt > Date.now()) return cached.promise
-
-  const promise = loadMemberHome(userId).catch((error) => {
-    memberHomeCache.delete(userId)
-    throw error
-  })
-  memberHomeCache.set(userId, { expiresAt: Date.now() + 30_000, promise })
-  return promise
+  return memberHomeCache.get(String(userId), () => loadMemberHome(userId))
 }
 
 async function loadManagerDashboard() {
@@ -250,36 +243,43 @@ async function loadManagerDashboard() {
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
   const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const trendStart = new Date(now.getFullYear(), now.getMonth() - 5, 1)
+  type DashboardCounts = {
+    activeMembers: number
+    newMembersThisMonth: number
+    classesToday: number
+    roomsInUse: number
+    totalRooms: number
+    roomsInMaintenance: number
+    monthlyRevenue: Prisma.Decimal
+    previousMonthRevenue: Prisma.Decimal
+    pendingRefunds: number
+    openSupportRequests: number
+    pendingOrders: number
+  }
   const [
-    activeMembers,
-    newMembersThisMonth,
-    classesToday,
-    roomsInUse,
-    totalRooms,
-    roomsInMaintenance,
-    revenue,
-    previousRevenue,
+    countsRows,
     paymentsForTrend,
     registrationsForTrend,
-    pendingRefunds,
-    openSupportRequests,
-    pendingOrders,
     classStatusRows,
     upcomingSessions,
   ] = await Promise.all([
-    prisma.member.count({ where: { user: { status: 'ACTIVE' } } }),
-    prisma.member.count({ where: { joinedAt: { gte: monthStart, lt: nextMonthStart } } }),
-    prisma.classSession.count({ where: { startsAt: { gte: dayStart, lt: dayEnd }, status: 'SCHEDULED' } }),
-    prisma.room.count({ where: { classSessions: { some: { startsAt: { lte: now }, endsAt: { gt: now }, status: 'SCHEDULED' } } } }),
-    prisma.room.count({ where: { status: { not: 'INACTIVE' } } }),
-    prisma.room.count({ where: { status: 'MAINTENANCE' } }),
-    prisma.payment.aggregate({ where: { status: 'SUCCESS', paidAt: { gte: monthStart, lt: nextMonthStart } }, _sum: { amount: true } }),
-    prisma.payment.aggregate({ where: { status: 'SUCCESS', paidAt: { gte: previousMonthStart, lt: monthStart } }, _sum: { amount: true } }),
+    // Gom các chỉ số nhỏ vào một round trip thay vì 11 request qua pool Supabase.
+    prisma.$queryRaw<DashboardCounts[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM "Member" m JOIN "User" u ON u.id = m."userId" WHERE u.status = 'ACTIVE') AS "activeMembers",
+        (SELECT COUNT(*)::int FROM "Member" WHERE "joinedAt" >= ${monthStart} AND "joinedAt" < ${nextMonthStart}) AS "newMembersThisMonth",
+        (SELECT COUNT(*)::int FROM "ClassSession" WHERE status = 'SCHEDULED' AND "startsAt" >= ${dayStart} AND "startsAt" < ${dayEnd}) AS "classesToday",
+        (SELECT COUNT(DISTINCT r.id)::int FROM "Room" r JOIN "ClassSession" s ON s."roomId" = r.id WHERE s.status = 'SCHEDULED' AND s."startsAt" <= ${now} AND s."endsAt" > ${now}) AS "roomsInUse",
+        (SELECT COUNT(*)::int FROM "Room" WHERE status <> 'INACTIVE') AS "totalRooms",
+        (SELECT COUNT(*)::int FROM "Room" WHERE status = 'MAINTENANCE') AS "roomsInMaintenance",
+        (SELECT COALESCE(SUM(amount), 0) FROM "Payment" WHERE status = 'SUCCESS' AND "paidAt" >= ${monthStart} AND "paidAt" < ${nextMonthStart}) AS "monthlyRevenue",
+        (SELECT COALESCE(SUM(amount), 0) FROM "Payment" WHERE status = 'SUCCESS' AND "paidAt" >= ${previousMonthStart} AND "paidAt" < ${monthStart}) AS "previousMonthRevenue",
+        (SELECT COUNT(*)::int FROM "RefundRequest" WHERE status IN ('REQUESTED', 'UNDER_REVIEW', 'APPROVED')) AS "pendingRefunds",
+        (SELECT COUNT(*)::int FROM "SupportRequest" WHERE status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS')) AS "openSupportRequests",
+        (SELECT COUNT(*)::int FROM "ServiceOrder" WHERE status = 'PENDING_PAYMENT') AS "pendingOrders"
+    `,
     prisma.payment.findMany({ where: { status: 'SUCCESS', paidAt: { gte: trendStart, lt: nextMonthStart } }, select: { amount: true, paidAt: true } }),
     prisma.classRegistration.findMany({ where: { registeredAt: { gte: trendStart, lt: nextMonthStart } }, select: { registeredAt: true } }),
-    prisma.refundRequest.count({ where: { status: { in: ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'] } } }),
-    prisma.supportRequest.count({ where: { status: { in: ['OPEN', 'ASSIGNED', 'IN_PROGRESS'] } } }),
-    prisma.serviceOrder.count({ where: { status: 'PENDING_PAYMENT' } }),
     prisma.groupClass.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.classSession.findMany({
       where: { startsAt: { gte: now }, status: 'SCHEDULED' },
@@ -302,6 +302,7 @@ async function loadManagerDashboard() {
     }),
   ])
 
+  const counts = countsRows[0]
   const trend = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - 5 + index, 1)
     return { key: `${date.getFullYear()}-${date.getMonth()}`, month: `Thg ${date.getMonth() + 1}`, revenue: 0, registrations: 0 }
@@ -322,17 +323,7 @@ async function loadManagerDashboard() {
   }, {})
 
   return {
-    activeMembers,
-    newMembersThisMonth,
-    classesToday,
-    roomsInUse,
-    totalRooms,
-    roomsInMaintenance,
-    monthlyRevenue: revenue._sum.amount ?? new Prisma.Decimal(0),
-    previousMonthRevenue: previousRevenue._sum.amount ?? new Prisma.Decimal(0),
-    pendingRefunds,
-    openSupportRequests,
-    pendingOrders,
+    ...counts,
     classStatus,
     trend: trend.map((item) => ({ month: item.month, revenue: item.revenue, registrations: item.registrations })),
     upcomingSessions: upcomingSessions.map((session) => ({
