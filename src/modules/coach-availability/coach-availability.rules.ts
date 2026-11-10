@@ -3,11 +3,11 @@ import { AVAILABILITY_RULES, shiftByCode } from './coach-availability.constants.
 
 export type AvailabilitySelectionInput = { dayOfWeek: number; shiftCode: string }
 
-export function validateAvailabilitySelections(selections: AvailabilitySelectionInput[]) {
+export function validateAvailabilitySelections(selections: AvailabilitySelectionInput[], minimumShifts: number = AVAILABILITY_RULES.minimumShifts) {
   const unique = new Map(selections.map((selection) => [`${selection.dayOfWeek}:${selection.shiftCode}`, selection]))
   if (unique.size !== selections.length) throw new HttpError(422, 'Thời khóa biểu có ca bị trùng', 'DUPLICATE_SHIFT')
-  if (selections.length < AVAILABILITY_RULES.minimumShifts) {
-    throw new HttpError(422, `Cần chọn tối thiểu ${AVAILABILITY_RULES.minimumShifts} ca mỗi tuần`, 'MINIMUM_SHIFTS_REQUIRED')
+  if (selections.length < minimumShifts) {
+    throw new HttpError(422, `Cần chọn tối thiểu ${minimumShifts} ca mỗi tuần`, 'MINIMUM_SHIFTS_REQUIRED')
   }
   const perDay = new Map<number, number>()
   for (const selection of selections) {

@@ -11,7 +11,7 @@ import * as planService from './workout-plan.service.js'
 
 export const listPlans: RequestHandler = async (request, response) => {
   const query = listPlansQuerySchema.parse(request.query)
-  response.json(await planService.listPlans(query))
+  response.json(await planService.listPlans(query, getAuthUser(request)))
 }
 
 export const getPlan: RequestHandler = async (request, response) => {
@@ -28,7 +28,7 @@ export const createPlan: RequestHandler = async (request, response) => {
 export const updatePlan: RequestHandler = async (request, response) => {
   const { id } = idParamsSchema.parse(request.params)
   const input = updatePlanSchema.parse(request.body)
-  response.json(await planService.updatePlan(id, input))
+  response.json(await planService.updatePlan(id, input, getAuthUser(request)))
 }
 
 export const changePlanStatus: RequestHandler = async (request, response) => {

@@ -89,6 +89,24 @@ export class PrivateCourseService {
     return activeCoursesCache.get(String(sportId ?? 'all'), () => loadActiveCourses(sportId));
   }
 
+  async listManagerCourses(sportId?: number) {
+    return prisma.privateCourse.findMany({
+      where: { sportId },
+      include: { sport: true, coaches: { include: { coach: { include: { user: { select: { id: true, displayName: true, avatarUrl: true } }, availabilities: { where: { status: 'AVAILABLE' } } } } } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async deleteDraftCourse(id: number) {
+    const course = await prisma.privateCourse.findUnique({ where: { id }, include: { _count: { select: { enrollments: true } } } });
+    if (!course) throw new HttpError(404, 'Không tìm thấy khóa học 1-1.', 'PRIVATE_COURSE_NOT_FOUND');
+    if (course.status !== 'DRAFT' || course._count.enrollments > 0) {
+      throw new HttpError(409, 'Chỉ xóa được khóa bản nháp chưa có người đăng ký. Hãy đóng khóa để giữ lịch sử.', 'PRIVATE_COURSE_DELETE_NOT_ALLOWED');
+    }
+    await prisma.privateCourse.delete({ where: { id } });
+    activeCoursesCache.invalidate();
+  }
+
   async getCourse(id: number) {
     const course = await prisma.privateCourse.findUnique({
       where: { id },

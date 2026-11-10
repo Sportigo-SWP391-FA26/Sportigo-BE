@@ -194,12 +194,12 @@ describe.skipIf(!hasTestDatabase)('FR-48 Lịch sử điểm danh', () => {
     // 3 lượt của lớp Coach phụ trách; lượt của lớp khác không có trong file
     expect(detail).toHaveLength(3)
     expect(detail.every((row) => row[2] === s.groupClass.name)).toBe(true)
-    expect(detail.map((row) => row[6]).sort()).toEqual(['Có mặt', 'Muộn', 'Vắng'])
+    expect(detail.map((row) => row[6]).sort()).toEqual(['Có mặt', 'Có mặt', 'Vắng'])
 
     const summary = await readSheet(response.body, 'Tổng hợp theo học viên')
     const first = summary.find((row) => row[0] === `MEM-${s.members[0]!.id}`)!
-    // Học viên 1: 1 Có mặt + 1 Muộn trên 2 buổi → chuyên cần 100%
-    expect(first.slice(2)).toEqual([1, 1, 0, 0, 2, 1])
+    // Học viên 1: 1 Có mặt + 1 bản ghi LATE cũ (tính Có mặt) trên 2 buổi → chuyên cần 100%
+    expect(first.slice(2)).toEqual([2, 0, 2, 1])
   })
 
   it('Xuất Excel: dùng cùng bộ lọc với danh sách (Manager lọc trạng thái)', async () => {

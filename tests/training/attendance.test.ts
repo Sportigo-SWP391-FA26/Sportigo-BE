@@ -23,8 +23,8 @@ describe.skipIf(!hasTestDatabase)('FR-47 Điểm danh buổi học', () => {
   const attendanceUrl = (sessionId: number) =>
     `/api/class-sessions/${sessionId}/attendance`
 
-  it('FR-47: Coach phụ trách điểm danh đủ 4 trạng thái PRESENT/ABSENT/LATE/EXCUSED', async () => {
-    const statuses = ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED'] as const
+  it('FR-47: Coach phụ trách điểm danh theo 2 trạng thái PRESENT/ABSENT', async () => {
+    const statuses = ['PRESENT', 'ABSENT', 'PRESENT', 'ABSENT'] as const
     const response = await request(app)
       .put(attendanceUrl(s.sessions.ongoing.id))
       .set('Authorization', s.coach.auth)
@@ -54,11 +54,11 @@ describe.skipIf(!hasTestDatabase)('FR-47 Điểm danh buổi học', () => {
         .send({ records: [{ classRegistrationId: registrationId, status }] })
 
     const first = await mark('ABSENT')
-    const second = await mark('LATE')
+    const second = await mark('PRESENT')
 
     expect(second.status).toBe(200)
     expect(second.body.records[0].id).toBe(first.body.records[0].id)
-    expect(second.body.records[0].status).toBe('LATE')
+    expect(second.body.records[0].status).toBe('PRESENT')
     const count = await prisma.sessionAttendance.count({
       where: { registrationId, classSessionId: sessionId },
     })
@@ -82,7 +82,7 @@ describe.skipIf(!hasTestDatabase)('FR-47 Điểm danh buổi học', () => {
       .set('Authorization', s.coach.auth)
       .send({
         records: [
-          { classRegistrationId: validRegistrationId, status: 'EXCUSED' },
+          { classRegistrationId: validRegistrationId, status: 'ABSENT' },
           { classRegistrationId: s.pendingRegistration.id, status: 'PRESENT' },
         ],
       })

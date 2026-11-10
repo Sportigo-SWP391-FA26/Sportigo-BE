@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js'
-import { randomUUID } from 'node:crypto'
+import { generateMemberCode } from '../../lib/member-code.js'
 
 export function findUserByIdentifier(identifier: string) {
   return prisma.user.findFirst({
@@ -26,7 +26,7 @@ export function createMember(data: {
       status: 'INACTIVE',
       member: {
         create: {
-          memberCode: `MEM-${randomUUID().slice(0, 8).toUpperCase()}`,
+          memberCode: generateMemberCode(),
         },
       },
       role: {

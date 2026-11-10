@@ -5,6 +5,12 @@ import { getAuthUser } from '../../middleware/auth.js';
 import bookingService from '../bookings/booking.service.js';
 
 export class GroupClassController {
+  async deleteGroupClass(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await groupClassService.deleteDraftClass(Number(req.params.id));
+      res.status(204).send();
+    } catch (error: unknown) { next(error); }
+  }
   async getGroupClasses(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const classes = await groupClassService.getAllGroupClasses();

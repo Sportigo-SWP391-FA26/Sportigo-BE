@@ -7,7 +7,7 @@ const COLORS = { navy: 'FF0F2B5C', blue: 'FF2563EB', sky: 'FF38BDF8', lime: 'FF8
 const moneyFormat = '#,##0 "₫";[Red]-#,##0 "₫";–'
 const dateTimeFormat = 'dd/mm/yyyy hh:mm'
 const channelLabels: Record<string, string> = { ONLINE: 'VNPay', COUNTER: 'Tiền mặt tại quầy', WALLET: 'Ví Sportigo' }
-const serviceLabels: Record<string, string> = { GROUP_CLASS: 'Lớp nhóm', PRIVATE_COURSE: 'Khóa 1–1' }
+const serviceLabels: Record<string, string> = { GROUP_CLASS: 'Lớp nhóm', PRIVATE_COURSE: 'Khóa 1–1', MEMBERSHIP: 'Gói membership' }
 const statusLabels: Record<string, string> = { SUCCESS: 'Thành công', PARTIALLY_REFUNDED: 'Hoàn một phần', REFUNDED: 'Đã hoàn', REQUESTED: 'Đã yêu cầu', UNDER_REVIEW: 'Đang xét duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối', COMPLETED: 'Hoàn tất' }
 
 function applySheetDefaults(sheet: ExcelJS.Worksheet, frozenRow = 1) {
@@ -125,6 +125,15 @@ export async function toRevenueWorkbook(report: FinancialReport) {
   styleTable(services, 5, services.rowCount, [4, 5, 6, 7])
   applySheetDefaults(services, 5)
 
+  const sports = workbook.addWorksheet('Doanh thu theo môn', { properties: { tabColor: { argb: COLORS.lime } } })
+  sports.columns = [28, 16, 18, 20, 20, 20, 20].map((width) => ({ width }))
+  addTitle(sports, 'DOANH THU THEO MÔN', `${filterLabel} · Gói membership không gắn môn nên được tách riêng`, 7)
+  sports.getRow(5).values = ['Môn', 'Số đơn', 'Số giao dịch', 'Doanh thu gộp', 'Giảm giá', 'Hoàn tiền', 'Doanh thu thuần']
+  for (const value of report.bySport) sports.addRow([value.name, value.orders, value.transactions, value.gross, value.discount, value.refunds, value.net])
+  if (report.bySport.length === 0) sports.addRow(['Không có dữ liệu trong kỳ'])
+  styleTable(sports, 5, sports.rowCount, [4, 5, 6, 7])
+  applySheetDefaults(sports, 5)
+
   const refunds = workbook.addWorksheet('Hoàn tiền', { properties: { tabColor: { argb: COLORS.orange } } })
   refunds.columns = [18, 24, 28, 21, 32, 21, 19, 19, 38, 18, 23, 19].map((width) => ({ width }))
   addTitle(refunds, 'YÊU CẦU HOÀN TIỀN', filterLabel, 12)
@@ -156,6 +165,35 @@ export async function toClassWorkbook(rows: { id: number; name: string; capacity
   sheet.columns = [{ header: 'Class ID', key: 'id', width: 12 }, { header: 'Class', key: 'name', width: 32 }, { header: 'Capacity', key: 'capacity', width: 14 }, { header: 'Confirmed', key: 'confirmed', width: 14 }, { header: 'Waitlist', key: 'waitlist', width: 12 }, { header: 'Occupancy', key: 'occupancy', width: 15 }, { header: 'Attendance', key: 'attendance', width: 15 }]
   sheet.addRows(rows.map((row) => ({ ...row, occupancy: row.occupancyRate, attendance: row.attendanceRate }))); sheet.getColumn('occupancy').numFmt = '0.00%'; sheet.getColumn('attendance').numFmt = '0.00%'
   sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }; sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; sheet.views = [{ state: 'frozen', ySplit: 1 }]
+  return Buffer.from(await workbook.xlsx.writeBuffer())
+}
+
+const auditActionLabels: Record<string, string> = {
+  STAFF_CREATED: 'Tạo tài khoản nhân sự', STAFF_UPDATED: 'Cập nhật nhân sự', USER_ACTIVATED: 'Kích hoạt tài khoản',
+  USER_LOCKED: 'Khóa tài khoản', USER_UNLOCKED: 'Mở khóa tài khoản', USER_DELETED: 'Xóa tài khoản',
+  MEMBER_CREATED: 'Tạo tài khoản hội viên', PAYMENT_CREATED: 'Tạo thanh toán', PAYMENT_COMPLETED: 'Hoàn tất thanh toán',
+  REFUND_REQUESTED: 'Yêu cầu hoàn tiền', REFUND_APPROVED: 'Duyệt hoàn tiền', REFUND_COMPLETED: 'Hoàn tất hoàn tiền',
+  PROMOTION_CREATED: 'Tạo khuyến mãi', PROMOTION_UPDATED: 'Cập nhật khuyến mãi', CLASS_CREATED: 'Tạo lớp học',
+  CLASS_UPDATED: 'Cập nhật lớp học', ATTENDANCE_MARKED: 'Ghi nhận điểm danh', WORKOUT_PLAN_CREATED: 'Tạo giáo án',
+  COACH_SPORT_ASSIGNED: 'Phân công chuyên môn cho Coach', UPDATE_GROUP_CLASS: 'Cập nhật lớp nhóm',
+  COLLECT_CASH_PAYMENT: 'Thu tiền mặt tại quầy', CREATE_PROMOTION: 'Tạo chương trình khuyến mãi',
+}
+const EXCEL_CELL_MAX_CHARS = 32_000
+const auditJson = (value: unknown) => value === null || value === undefined ? '' : JSON.stringify(value).slice(0, EXCEL_CELL_MAX_CHARS)
+
+export async function toAuditWorkbook(rows: { createdAt: Date; action: string; entityType: string; entityId: unknown; ipAddress: string | null; oldData: unknown; newData: unknown; actor: { displayName: string; email: string } | null }[]) {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'Sportigo'
+  const sheet = workbook.addWorksheet('Nhật ký hệ thống', { properties: { tabColor: { argb: COLORS.navy } } })
+  sheet.columns = [20, 30, 26, 18, 14, 26, 30, 18, 44, 44].map((width) => ({ width }))
+  addTitle(sheet, 'NHẬT KÝ HỆ THỐNG', `${rows.length} bản ghi · Xuất lúc ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`, 10)
+  sheet.getRow(5).values = ['Thời gian', 'Hành động', 'Mã sự kiện', 'Đối tượng', 'Mã đối tượng', 'Người thực hiện', 'Email', 'Địa chỉ IP', 'Trước thay đổi', 'Sau thay đổi']
+  for (const row of rows) {
+    sheet.addRow([row.createdAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }), auditActionLabels[row.action] ?? row.action, row.action, row.entityType, String(row.entityId), row.actor?.displayName ?? 'Hệ thống tự động', row.actor?.email ?? '—', row.ipAddress ?? '—', auditJson(row.oldData), auditJson(row.newData)])
+  }
+  if (rows.length === 0) sheet.addRow(['Không có dữ liệu phù hợp'])
+  styleTable(sheet, 5, sheet.rowCount)
+  applySheetDefaults(sheet, 5)
   return Buffer.from(await workbook.xlsx.writeBuffer())
 }
 

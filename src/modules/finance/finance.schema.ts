@@ -3,11 +3,12 @@ import { z } from 'zod'
 export const idParamSchema = z.coerce.number().int().positive()
 export const paginationSchema = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20) })
 export const paymentListSchema = paginationSchema.extend({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), status: z.enum(['PENDING','SUCCESS','FAILED','CANCELLED','PARTIALLY_REFUNDED','REFUNDED']).optional(), channel: z.enum(['ONLINE','COUNTER','WALLET']).optional(), memberId: z.coerce.number().int().positive().optional() })
-export const revenueReportSchema = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), channel: z.enum(['ONLINE','COUNTER','WALLET']).optional(), itemType: z.enum(['GROUP_CLASS','PRIVATE_COURSE']).optional() }).superRefine((value, ctx) => {
+export const revenueReportSchema = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), channel: z.enum(['ONLINE','COUNTER','WALLET']).optional(), itemType: z.enum(['GROUP_CLASS','PRIVATE_COURSE','MEMBERSHIP']).optional() }).superRefine((value, ctx) => {
   if (value.from && value.to && value.from > value.to) ctx.addIssue({ code: 'custom', path: ['to'], message: 'Ngày kết thúc phải từ ngày bắt đầu trở đi' })
 })
 export const classReportSchema = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), sportId: z.coerce.number().int().positive().optional(), coachId: z.coerce.number().int().positive().optional(), classId: z.coerce.number().int().positive().optional() })
 export const auditListSchema = paginationSchema.extend({ actorId: z.coerce.number().int().positive().optional(), action: z.string().trim().min(1).optional(), entityType: z.string().trim().min(1).optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() })
+export const auditExportSchema = auditListSchema.omit({ page: true, limit: true })
 export const promotionApplySchema = z.object({ code: z.string().trim().min(1).max(50) })
 export const walletPaymentSchema = z.object({ amount: z.coerce.number().positive().multipleOf(0.01) })
 export const walletTopUpSchema = z.object({ amount: z.coerce.number().int().min(10000).max(50000000) })
@@ -19,7 +20,7 @@ export const promotionSchema = z.object({
   code: z.string().trim().min(3).max(50).transform((value) => value.toUpperCase()),
   name: z.string().trim().min(2).max(160), discountType: z.enum(['PERCENTAGE', 'FIXED_AMOUNT']),
   discountValue: z.coerce.number().positive(), maxDiscount: z.coerce.number().positive().nullable().optional(),
-  minOrderAmount: z.coerce.number().min(0).default(0), applicableType: z.enum(['ALL', 'GROUP_CLASS', 'PRIVATE_COURSE']).default('ALL'),
+  minOrderAmount: z.coerce.number().min(0).default(0), applicableType: z.enum(['ALL', 'GROUP_CLASS', 'PRIVATE_COURSE', 'MEMBERSHIP']).default('ALL'),
   startAt: z.coerce.date(), endAt: z.coerce.date(), totalUsageLimit: z.coerce.number().int().positive().nullable().optional(),
   perMemberLimit: z.coerce.number().int().positive().nullable().optional(), isPublic: z.boolean().default(false), status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE', 'EXPIRED']).default('DRAFT'),
 }).refine((value) => value.endAt > value.startAt, { message: 'Thời gian khuyến mãi không hợp lệ', path: ['endAt'] })
@@ -31,7 +32,7 @@ export const promotionUpdateSchema = z.object({
   discountValue: z.coerce.number().positive().optional(),
   maxDiscount: z.coerce.number().positive().nullable().optional(),
   minOrderAmount: z.coerce.number().min(0).optional(),
-  applicableType: z.enum(['ALL', 'GROUP_CLASS', 'PRIVATE_COURSE']).optional(),
+  applicableType: z.enum(['ALL', 'GROUP_CLASS', 'PRIVATE_COURSE', 'MEMBERSHIP']).optional(),
   startAt: z.coerce.date().optional(),
   endAt: z.coerce.date().optional(),
   totalUsageLimit: z.coerce.number().int().positive().nullable().optional(),

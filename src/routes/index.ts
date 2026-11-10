@@ -25,7 +25,10 @@ import { homeDataRouter, landingContentRouter, publicContentRouter } from '../mo
 import { uploadRouter } from '../modules/uploads/upload.routes.js'
 import { availabilityChangeRequestRouter, availabilitySubmissionRouter, coachAvailabilitySelfRouter } from '../modules/coach-availability/coach-availability.routes.js'
 import { assessmentMetricRouter } from '../modules/training/assessment-metric.routes.js'
+import { membershipRouter } from '../modules/memberships/membership.routes.js'
 import { coachAssessmentRouter } from '../modules/training/progress-assessment.routes.js'
+
+import { centerSettingsRouter } from '../modules/center-settings/center-settings.routes.js'
 
 export const apiRouter = Router()
 
@@ -33,6 +36,7 @@ export const apiRouter = Router()
 apiRouter.use('/auth', authRouter)
 apiRouter.use('/public', publicContentRouter)
 apiRouter.use('/landing-content', landingContentRouter)
+apiRouter.use('/center-settings', centerSettingsRouter)
 apiRouter.use(homeDataRouter)
 
 // Profile (FR-05, FR-62)
@@ -41,6 +45,9 @@ apiRouter.use('/users', usersRouter)
 // Staff management (FR-07)
 apiRouter.use('/staff', staffRouter)
 apiRouter.use('/uploads', uploadRouter)
+
+// Phải đứng trước '/members' để POST /members/:id/memberships không bị router hội viên chặn
+apiRouter.use(membershipRouter)
 
 // Member management (FR-08)
 apiRouter.use('/members', membersRouter)

@@ -14,7 +14,8 @@ export const markAttendanceSchema = z
       .array(
         z.object({
           classRegistrationId: z.number().int().positive(),
-          status: attendanceStatusSchema,
+          // Chỉ ghi Có mặt/Vắng; LATE, EXCUSED còn trong enum để đọc dữ liệu cũ
+          status: z.enum(['PRESENT', 'ABSENT']),
           note: z.string().trim().max(500).optional(),
         }),
       )

@@ -43,11 +43,12 @@ async function assertSportAvailable(sportId: number) {
   }
 }
 
-export async function listPlans(query: ListPlansQuery) {
+export async function listPlans(query: ListPlansQuery, user: AuthUser) {
   const { page, pageSize, ...filter } = query
   const [rows, total] = await planRepository.findPlans(
     filter,
     toSkipTake({ page, pageSize }),
+    user.role === 'COACH' ? user.id : undefined,
   )
   return toPage(rows.map(toPlanSummary), total, { page, pageSize })
 }
@@ -62,6 +63,7 @@ export async function getPlan(planId: number) {
 export async function createPlan(user: AuthUser, input: CreatePlanInput) {
   if (!(await planRepository.findCoach(user.id))) throw forbidden()
   await assertSportAvailable(input.sportId)
+  if (!(await planRepository.coachHasSport(user.id, input.sportId))) throw forbidden()
   const plan = await planRepository.createPlan({
     ...input,
     createdById: user.id,
@@ -69,8 +71,10 @@ export async function createPlan(user: AuthUser, input: CreatePlanInput) {
   return toPlanSummary(plan)
 }
 
-export async function updatePlan(planId: number, input: UpdatePlanInput) {
+export async function updatePlan(planId: number, input: UpdatePlanInput, user: AuthUser) {
   const plan = await getPlanStateOrThrow(planId)
+
+  if (input.sportId !== undefined && !(await planRepository.coachHasSport(user.id, input.sportId))) throw forbidden()
 
   if (input.sportId !== undefined && input.sportId !== plan.sportId) {
     // BR-44: giáo án đã từng được gán thì không được đổi môn

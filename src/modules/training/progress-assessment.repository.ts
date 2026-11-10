@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { coachRefSelect, memberRefSelect } from './training.common.js'
 
-const sportSelect = { select: { id: true, name: true } } as const
+const sportSelect = { select: { id: true, name: true, passingScore: true } } as const
 
 export const assessmentSelect = {
   id: true,

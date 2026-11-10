@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { authenticate, authorize } from '../../middleware/auth.js'
+import { requirePlanSport } from './workout-plan-access.js'
 import {
   createItem,
   deleteItem,
@@ -8,8 +9,8 @@ import {
   updateItem,
 } from './workout-plan-item.controller.js'
 
-const canRead = [authenticate, authorize('COACH', 'CENTER_MANAGER')]
-const coachOnly = [authenticate, authorize('COACH')]
+const canRead = [authenticate, authorize('COACH', 'CENTER_MANAGER'), requirePlanSport]
+const coachOnly = [authenticate, authorize('COACH'), requirePlanSport]
 
 // Gắn tại /api/workout-plans/:id/items; mergeParams để đọc được :id
 export const workoutPlanItemRouter = Router({ mergeParams: true })

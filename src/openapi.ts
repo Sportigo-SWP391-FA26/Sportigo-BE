@@ -9,6 +9,7 @@ import { supportPaths } from './modules/support/support.openapi.js'
 import { contentPaths } from './modules/content/content.openapi.js'
 import { uploadPaths } from './modules/uploads/upload.openapi.js'
 import { coachAvailabilityPaths } from './modules/coach-availability/coach-availability.openapi.js'
+import { membershipPaths } from './modules/memberships/membership.openapi.js'
 
 export const openApiDocument = {
   openapi: '3.0.3',
@@ -61,5 +62,6 @@ export const openApiDocument = {
     ...contentPaths,
     ...uploadPaths,
     ...coachAvailabilityPaths,
+    ...membershipPaths,
   },
 } as const

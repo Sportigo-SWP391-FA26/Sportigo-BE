@@ -22,6 +22,8 @@ export interface CreateGroupClassDto {
   name: string;
   description?: string | null;
   capacity: number;
+  totalSessions?: number;
+  sessionsPerWeek?: number;
   tuitionFee: number;
   registrationOpenAt: string | Date;
   registrationCloseAt: string | Date;
@@ -37,6 +39,12 @@ export class GroupClassService {
 
   // FR-15: Tạo lớp nhóm (Mặc định trạng thái là DRAFT)
   async createGroupClass(data: CreateGroupClassDto) {
+    if ((data.totalSessions !== undefined || data.sessionsPerWeek !== undefined) &&
+        (!Number.isSafeInteger(data.totalSessions) || !Number.isSafeInteger(data.sessionsPerWeek) ||
+        !data.totalSessions || !data.sessionsPerWeek || data.totalSessions < 1 ||
+        data.sessionsPerWeek < 1 || data.sessionsPerWeek > data.totalSessions)) {
+      throw new HttpError(400, 'Tổng số buổi và số buổi mỗi tuần không hợp lệ.', 'INVALID_CLASS_SESSION_TARGET');
+    }
     if (data.capacity <= 0) {
       throw new HttpError(400, 'Sức chứa của lớp học phải lớn hơn 0.', 'INVALID_CLASS_CAPACITY');
     }
@@ -71,6 +79,8 @@ export class GroupClassService {
         name: data.name,
         description: data.description,
         capacity: data.capacity,
+        totalSessions: data.totalSessions,
+        sessionsPerWeek: data.sessionsPerWeek,
         tuitionFee: data.tuitionFee,
         registrationOpenAt: new Date(data.registrationOpenAt),
         registrationCloseAt: new Date(data.registrationCloseAt),
@@ -93,6 +103,8 @@ export class GroupClassService {
       'name',
       'description',
       'capacity',
+      'totalSessions',
+      'sessionsPerWeek',
       'tuitionFee',
       'registrationOpenAt',
       'registrationCloseAt',
@@ -129,6 +141,18 @@ export class GroupClassService {
       },
     });
     if (!current) throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND');
+    if (current.sessions.length > 0 &&
+        ((data.totalSessions !== undefined && data.totalSessions !== current.totalSessions) ||
+         (data.sessionsPerWeek !== undefined && data.sessionsPerWeek !== current.sessionsPerWeek))) {
+      throw new HttpError(409, 'Không thể đổi chỉ tiêu số buổi sau khi đã xếp lịch.', 'CLASS_SESSION_TARGET_LOCKED');
+    }
+    if (data.totalSessions !== undefined || data.sessionsPerWeek !== undefined) {
+      const total = data.totalSessions ?? current.totalSessions;
+      const weekly = data.sessionsPerWeek ?? current.sessionsPerWeek;
+      if (!total || !weekly || !Number.isSafeInteger(total) || !Number.isSafeInteger(weekly) || weekly > total || weekly < 1) {
+        throw new HttpError(400, 'Số buổi học không hợp lệ.', 'INVALID_CLASS_SESSION_TARGET');
+      }
+    }
     if ((data.capacity ?? current.capacity) < current.registrations.length) {
       throw new HttpError(409, 'Sức chứa không thể thấp hơn số chỗ đã giữ.', 'CLASS_CAPACITY_BELOW_OCCUPANCY');
     }
@@ -204,6 +228,8 @@ export class GroupClassService {
     if (data.registrationCloseAt !== undefined) updateData.registrationCloseAt = registrationCloseAt;
     if (data.startDate !== undefined) updateData.startDate = startDate;
     if (data.endDate !== undefined) updateData.endDate = endDate;
+    if (data.totalSessions !== undefined) updateData.totalSessions = data.totalSessions;
+    if (data.sessionsPerWeek !== undefined) updateData.sessionsPerWeek = data.sessionsPerWeek;
 
     const updatedClass = await prisma.$transaction(async (tx) => {
       const updated = await tx.groupClass.update({ where: { id: classId }, data: updateData });
@@ -257,6 +283,19 @@ export class GroupClassService {
     });
     groupClassesCache.invalidate();
     return updated;
+  }
+
+  async deleteDraftClass(id: number) {
+    const groupClass = await prisma.groupClass.findUnique({
+      where: { id },
+      include: { _count: { select: { sessions: true, registrations: true, waitlists: true } } },
+    });
+    if (!groupClass) throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND');
+    if (groupClass.status !== ClassStatus.DRAFT || Object.values(groupClass._count).some((count) => count > 0)) {
+      throw new HttpError(409, 'Chỉ xóa được bản nháp chưa có buổi học, đăng ký hoặc danh sách chờ. Hãy đóng lớp để giữ lịch sử.', 'CLASS_DELETE_NOT_ALLOWED');
+    }
+    await prisma.groupClass.delete({ where: { id } });
+    groupClassesCache.invalidate();
   }
 
   // FR-16: Phân công hoặc thay đổi Coach cho lớp nhóm

@@ -7,6 +7,8 @@ import { calculateDiscount, calculateRefundable, calculateRemaining, isFullyRefu
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 import waitlistService from '../waitlist/waitlist.service.js'
 import { lockGroupClass } from '../../lib/group-class-lock.js'
+import { refundLateVnpayPayment } from './expired-payment-refund.js'
+import { activateSubscription } from '../memberships/membership-activation.js'
 
 // note(FR-54): định dạng tiền cho nội dung thông báo
 const vnd = (value: Prisma.Decimal) => `${Number(value.toFixed(0)).toLocaleString('vi-VN')} đ`
@@ -211,11 +213,14 @@ async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) 
       throw new HttpError(409, 'Lời mời đã hết hạn hoặc bị hủy; khoản thanh toán không thể xác nhận đăng ký.', 'WAITLIST_PAYMENT_EXPIRED')
     }
   }
+  // Worker có thể vừa hết hạn đơn trong lúc giao dịch này chạy: rollback để không xác nhận vượt chỗ đã trả lại.
+  if (order.status === 'EXPIRED' || order.status === 'CANCELLED') throw new HttpError(409, 'Đơn hàng đã hết hạn hoặc bị hủy', 'ORDER_NOT_PAYABLE')
   if (remaining(order).greaterThan(0)) return order
   if (order.status !== 'PAID') await tx.serviceOrder.update({ where: { id: orderId }, data: { status: 'PAID', paidAt: new Date() } })
   for (const item of order.items) {
     if (item.classRegistrationId) await tx.classRegistration.update({ where: { id: item.classRegistrationId }, data: { status: 'CONFIRMED' } })
     if (item.privateEnrollmentId) await tx.privateCourseEnrollment.update({ where: { id: item.privateEnrollmentId }, data: { status: 'ACTIVE' } })
+    if (item.memberSubscriptionId) await activateSubscription(tx, item.memberSubscriptionId, order.memberId)
   }
   await waitlistService.markInvitationFulfilled(tx, orderId, new Date())
   const topUpItem = order.items.find((item) => item.itemType === 'WALLET_TOP_UP')
@@ -327,6 +332,9 @@ export async function processVnpayIpn(params: VnpayParams) {
   if (!payment) return { RspCode: '01', Message: 'Order not found' }
   if (!money(params.vnp_Amount ?? 0).div(100).equals(payment.amount)) return { RspCode: '04', Message: 'Invalid amount' }
   if (payment.status === 'SUCCESS') return { RspCode: '02', Message: 'Order already confirmed' }
+  if (payment.status === 'CANCELLED' && params.vnp_ResponseCode === '00' && params.vnp_TransactionStatus === '00' && await refundLateVnpayPayment(payment.id, params)) {
+    return { RspCode: '00', Message: 'Confirm Success' }
+  }
   const invitation = await prisma.classWaitlistInvitation.findUnique({
     where: { orderId: payment.orderId },
     select: { status: true, waitlist: { select: { classId: true } } },
@@ -546,7 +554,7 @@ export async function completeRefund(id: number, actorId: number, ipAddress?: st
 
 export type RevenueReportQuery = { from?: Date; to?: Date; channel?: Prisma.EnumPaymentChannelFilter['equals']; itemType?: OrderItemType }
 
-const serviceItemTypes: OrderItemType[] = ['GROUP_CLASS', 'PRIVATE_COURSE']
+const serviceItemTypes: OrderItemType[] = ['GROUP_CLASS', 'PRIVATE_COURSE', 'MEMBERSHIP']
 
 function currentMonthRange(now = new Date()) {
   // Việt Nam không áp dụng DST; 00:00 GMT+7 tương ứng 17:00 UTC ngày hôm trước.
@@ -565,6 +573,22 @@ export function normalizeRevenuePeriod(query: RevenueReportQuery = {}) {
 }
 
 const successfulPaymentStatuses = ['SUCCESS', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const
+
+const sportSelect = { select: { id: true, name: true } } as const
+const orderItemSportInclude = {
+  classRegistration: { select: { groupClass: { select: { sport: sportSelect } } } },
+  privateEnrollment: { select: { privateCourse: { select: { sport: sportSelect } } } },
+} satisfies Prisma.OrderItemInclude
+
+type OrderItemSportSource = Prisma.OrderItemGetPayload<{ include: typeof orderItemSportInclude }>
+type RevenueSportGroup = { sportId: number | null; name: string; orders: Set<number>; transactions: number; gross: number; discount: number; refunds: number; net: number }
+
+function revenueSportOf(item: OrderItemSportSource) {
+  const sport = item.classRegistration?.groupClass.sport ?? item.privateEnrollment?.privateCourse.sport
+  if (sport) return { key: `sport:${sport.id}`, sportId: sport.id, name: sport.name }
+  if (item.itemType === 'MEMBERSHIP') return { key: 'membership', sportId: null, name: 'Gói membership' }
+  return { key: 'other', sportId: null, name: 'Khác' }
+}
 
 export async function financialReportData(input: RevenueReportQuery = {}) {
   const query = normalizeRevenuePeriod(input)
@@ -586,7 +610,7 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
         collectedBy: { select: { displayName: true } },
         order: {
           include: {
-            items: true,
+            items: { include: orderItemSportInclude },
             invoice: true,
             member: { include: { user: { select: { displayName: true, email: true } } } },
           },
@@ -610,7 +634,7 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
         createdAt: { gte: query.from, lte: query.to },
         payment: { channel: query.channel, order: { items: { some: serviceFilter } } },
       },
-      include: { orderItem: true, payment: { include: { order: { include: { items: true } } } } },
+      include: { orderItem: { include: orderItemSportInclude }, payment: { include: { order: { include: { items: { include: orderItemSportInclude } } } } } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     }),
     prisma.refundRequest.findMany({
@@ -629,6 +653,13 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
   const orderDiscounts = new Map<number, number>()
   const byChannel: Record<string, number> = {}
   const byService: Record<string, { orders: Set<number>; transactions: number; gross: number; discount: number; refunds: number; net: number }> = {}
+  const bySport = new Map<string, RevenueSportGroup>()
+  const sportGroupFor = (item: OrderItemSportSource) => {
+    const source = revenueSportOf(item)
+    const group = bySport.get(source.key) ?? { sportId: source.sportId, name: source.name, orders: new Set<number>(), transactions: 0, gross: 0, discount: 0, refunds: 0, net: 0 }
+    bySport.set(source.key, group)
+    return group
+  }
   let gross = 0
   let refunds = 0
 
@@ -649,6 +680,13 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
       group.gross += paymentAmount * share
       if (firstPaymentForOrder) group.discount += asNumber(item.discountAmount)
       byService[item.itemType] = group
+
+      const sportGroup = sportGroupFor(item)
+      const firstPaymentForSport = !sportGroup.orders.has(payment.orderId)
+      sportGroup.orders.add(payment.orderId)
+      sportGroup.transactions += 1
+      sportGroup.gross += paymentAmount * share
+      if (firstPaymentForSport) sportGroup.discount += asNumber(item.discountAmount)
     }
   }
 
@@ -662,11 +700,14 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
     const totalItems = serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || asNumber(adjustment.payment.amount)
     for (const item of serviceItems) {
       const group = byService[item.itemType] ?? { orders: new Set<number>(), transactions: 0, gross: 0, discount: 0, refunds: 0, net: 0 }
-      group.refunds += adjustment.orderItem ? refundAmount : refundAmount * (asNumber(item.finalAmount) / totalItems)
+      const refundShare = adjustment.orderItem ? refundAmount : refundAmount * (asNumber(item.finalAmount) / totalItems)
+      group.refunds += refundShare
       byService[item.itemType] = group
+      sportGroupFor(item).refunds += refundShare
     }
   }
   for (const group of Object.values(byService)) group.net = group.gross - group.refunds
+  for (const group of bySport.values()) group.net = group.gross - group.refunds
 
   const walletTopUpAmount = walletTopUps.reduce((sum, payment) => sum + asNumber(payment.amount), 0)
   return {
@@ -680,6 +721,7 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
     walletTopUps: walletTopUpAmount,
     byChannel,
     byService: Object.fromEntries(Object.entries(byService).map(([key, value]) => [key, { ...value, orders: value.orders.size }])),
+    bySport: [...bySport.values()].map((value) => ({ ...value, orders: value.orders.size })).sort((left, right) => right.net - left.net),
     payments,
     refundRequests,
     refundAdjustments,
@@ -700,6 +742,7 @@ export async function revenueReport(query: RevenueReportQuery = {}) {
     walletTopUps: report.walletTopUps,
     byChannel: report.byChannel,
     byService: report.byService,
+    bySport: report.bySport,
   }
 }
 
@@ -708,9 +751,23 @@ export async function classReport(query: { from?: Date; to?: Date; sportId?: num
   return classes.map((item) => { const confirmed = item.registrations.filter((r) => r.status === 'CONFIRMED').length; const attendance = item.sessions.flatMap((s) => s.attendances); return { id: item.id, name: item.name, capacity: item.capacity, confirmed, waitlist: item.waitlists.filter((w) => w.status === 'WAITING').length, occupancyRate: item.capacity ? confirmed / item.capacity : 0, attendanceRate: attendance.length ? attendance.filter((a) => ['PRESENT', 'LATE'].includes(a.status)).length / attendance.length : 0 } })
 }
 
-export async function listAuditLogs(query: { page: number; limit: number; actorId?: number; action?: string; entityType?: string; from?: Date; to?: Date }) {
+type AuditFilters = { actorId?: number; action?: string; entityType?: string; from?: Date; to?: Date }
+const AUDIT_EXPORT_MAX_ROWS = 5000
+
+function auditLogWhere(query: AuditFilters): Prisma.AuditLogWhereInput {
+  return { actorId: query.actorId, action: query.action ? { contains: query.action, mode: 'insensitive' } : undefined, entityType: query.entityType ? { equals: query.entityType, mode: 'insensitive' } : undefined, createdAt: { gte: query.from, lte: query.to } }
+}
+
+export async function auditLogsForExport(query: AuditFilters) {
+  const where = auditLogWhere(query)
+  const total = await prisma.auditLog.count({ where })
+  if (total > AUDIT_EXPORT_MAX_ROWS) throw new HttpError(422, `Có ${total} bản ghi, vượt giới hạn ${AUDIT_EXPORT_MAX_ROWS} dòng. Hãy thu hẹp bộ lọc.`, 'EXPORT_TOO_LARGE')
+  return prisma.auditLog.findMany({ where, include: { actor: { select: { displayName: true, email: true } } }, orderBy: { createdAt: 'desc' } })
+}
+
+export async function listAuditLogs(query: AuditFilters & { page: number; limit: number }) {
   const { page, limit } = query
-  const where: Prisma.AuditLogWhereInput = { actorId: query.actorId, action: query.action ? { contains: query.action, mode: 'insensitive' } : undefined, entityType: query.entityType ? { equals: query.entityType, mode: 'insensitive' } : undefined, createdAt: { gte: query.from, lte: query.to } }
+  const where = auditLogWhere(query)
   const [items, total, actionRows, entityRows] = await Promise.all([
     prisma.auditLog.findMany({ where, include: { actor: { select: { id: true, displayName: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
     prisma.auditLog.count({ where }),

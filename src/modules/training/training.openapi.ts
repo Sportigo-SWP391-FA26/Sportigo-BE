@@ -377,7 +377,7 @@ export const trainingPaths = {
       tags: ['Training – Giáo án'],
       summary: 'FR-49: Danh sách giáo án (phân trang)',
       description:
-        'COACH và CENTER_MANAGER. search tìm theo tên, không phân biệt hoa thường.',
+        'CENTER_MANAGER xem mọi môn. COACH chỉ xem giáo án thuộc môn được phân công; search tìm theo tên, không phân biệt hoa thường.',
       security,
       parameters: [
         queryParam('sportId', integerId, 'Lọc theo môn'),
@@ -413,7 +413,7 @@ export const trainingPaths = {
       tags: ['Training – Giáo án'],
       summary: 'FR-49: Coach tạo giáo án dùng chung theo môn',
       description:
-        'Giáo án gắn đúng một môn đang hoạt động (BR-44), trạng thái khởi tạo là DRAFT.',
+        'Giáo án gắn đúng một môn đang hoạt động (BR-44), trạng thái khởi tạo là DRAFT. COACH chỉ được tạo cho môn mình được phân công.',
       security,
       requestBody: jsonBody(createPlanSchema, {
         sportId: 1,
@@ -439,6 +439,7 @@ export const trainingPaths = {
     get: {
       tags: ['Training – Giáo án'],
       summary: 'FR-49: Chi tiết giáo án kèm các mục (tuần → buổi → thứ tự)',
+      description: 'COACH chỉ được xem giáo án thuộc môn mình được phân công; CENTER_MANAGER xem tất cả.',
       security,
       parameters: [pathId('ID giáo án')],
       responses: {

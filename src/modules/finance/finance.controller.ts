@@ -2,9 +2,9 @@ import type { RequestHandler } from 'express'
 import { env } from '../../config/env.js'
 import { getAuthUser } from '../../middleware/auth.js'
 import * as finance from './finance.service.js'
-import { auditListSchema, cashOrderSearchSchema, cashPaymentSchema, classReportSchema, idParamSchema, paginationSchema, paymentListSchema, promotionApplySchema, promotionSchema, promotionUpdateSchema, refundCreateSchema, refundReviewSchema, revenueReportSchema, walletPaymentSchema, walletTopUpSchema } from './finance.schema.js'
+import { auditExportSchema, auditListSchema, cashOrderSearchSchema, cashPaymentSchema, classReportSchema, idParamSchema, paginationSchema, paymentListSchema, promotionApplySchema, promotionSchema, promotionUpdateSchema, refundCreateSchema, refundReviewSchema, revenueReportSchema, walletPaymentSchema, walletTopUpSchema } from './finance.schema.js'
 import { normalizeVnpayQuery } from './vnpay.js'
-import { toClassPdf, toClassWorkbook, toInvoicePdf, toRevenuePdf, toRevenueWorkbook } from './finance.export.js'
+import { toAuditWorkbook, toClassPdf, toClassWorkbook, toInvoicePdf, toRevenuePdf, toRevenueWorkbook } from './finance.export.js'
 
 const id = (value: unknown) => idParamSchema.parse(value)
 const ip = (value: string | undefined) => value?.replace('::ffff:', '') ?? '127.0.0.1'
@@ -39,6 +39,10 @@ export const completeRefund: RequestHandler = async (req, res) => res.json(await
 export const revenueReport: RequestHandler = async (req, res) => res.json(await finance.revenueReport(revenueReportSchema.parse(req.query)))
 export const classReport: RequestHandler = async (req, res) => res.json(await finance.classReport(classReportSchema.parse(req.query)))
 export const listAuditLogs: RequestHandler = async (req, res) => res.json(await finance.listAuditLogs(auditListSchema.parse(req.query)))
+export const exportAuditLogs: RequestHandler = async (req, res) => {
+  const file = await toAuditWorkbook(await finance.auditLogsForExport(auditExportSchema.parse(req.query)))
+  res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').attachment('Sportigo_NhatKyHeThong.xlsx').send(file)
+}
 export const downloadInvoice: RequestHandler = async (req, res) => { const invoice = await finance.getInvoice(id(req.params.id), getAuthUser(req)); const pdf = await toInvoicePdf(invoice); res.type('application/pdf').attachment(`${invoice.invoiceNumber}.pdf`).send(pdf) }
 export const exportRevenue: RequestHandler = async (req, res) => {
   const query = revenueReportSchema.parse(req.query)

@@ -23,6 +23,7 @@ router.patch(
   authorize('CENTER_MANAGER'),
   privateController.updateCourse,
 );
+router.delete('/:id', authenticate, authorize('CENTER_MANAGER'), privateController.deleteCourse);
 router.post(
   '/:id/coaches',
   authenticate,

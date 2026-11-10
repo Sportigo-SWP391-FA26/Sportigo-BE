@@ -59,6 +59,7 @@ function toAssessments(member: Member) {
     id: assessment.id,
     assessmentDate: toDateOnly(assessment.assessmentDate),
     score: toNumber(assessment.score),
+    passingScore: toNumber((assessment.classRegistration?.groupClass.sport ?? assessment.privateEnrollment?.privateCourse.sport)?.passingScore ?? null),
     coachComment: assessment.coachComment,
     recommendation: assessment.recommendation,
     nextAssessmentDate: toDateOnly(assessment.nextAssessmentDate),

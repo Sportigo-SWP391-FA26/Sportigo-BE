@@ -9,7 +9,7 @@ export class SportService {
     return sportsCache.get();
   }
 
-  async createSport(data: { name: string; description?: string; imageUrl?: string; isActive?: boolean }) {
+  async createSport(data: { name: string; description?: string; imageUrl?: string; isActive?: boolean; passingScore?: number | null }) {
     const existing = await prisma.sport.findUnique({ where: { name: data.name } });
     if (existing) {
       throw new HttpError(409, 'Tên môn thể thao đã tồn tại trong hệ thống.', 'SPORT_NAME_CONFLICT');
@@ -21,13 +21,14 @@ export class SportService {
         description: data.description,
         imageUrl: data.imageUrl,
         isActive: data.isActive ?? true,
+        passingScore: data.passingScore,
       },
     });
     sportsCache.invalidate();
     return created;
   }
 
-  async updateSport(id: number, data: { name?: string; description?: string; imageUrl?: string; isActive?: boolean }) {
+  async updateSport(id: number, data: { name?: string; description?: string; imageUrl?: string; isActive?: boolean; passingScore?: number | null }) {
     if (data.name) {
       const existing = await prisma.sport.findFirst({ where: { name: data.name, NOT: { id } } });
       if (existing) {

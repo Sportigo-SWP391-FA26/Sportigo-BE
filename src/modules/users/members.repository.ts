@@ -1,11 +1,9 @@
-import { randomUUID } from 'node:crypto'
 // TEMP(FR-62): src/lib/audit.ts là bản tạm, xem comment tại đó
 import { audit } from '../../lib/audit.js'
 import { prisma } from '../../lib/prisma.js'
 import { userSummarySelect } from './user-admin.repository.js'
 
-// note: cùng định dạng mã với auth.repository.createMember (đăng ký online) để hai luồng không lệch nhau
-export const generateMemberCode = () => `MEM-${randomUUID().slice(0, 8).toUpperCase()}`
+export { generateMemberCode } from '../../lib/member-code.js'
 
 export type NewMember = {
   displayName: string

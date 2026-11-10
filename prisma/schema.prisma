@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -52,6 +53,7 @@ model User {
   supportRequests                 SupportRequest[]
   role                            Role                             @relation(fields: [roleId], references: [id])
   walletTransactionsCreated       WalletTransaction[]              @relation("WalletTransactionCreator")
+  gymCheckInsRecorded             GymCheckIn[]
 
   @@index([roleId, status])
   @@index([deletedAt])
@@ -125,6 +127,8 @@ model Member {
   refundRequests        RefundRequest[]
   orders                ServiceOrder[]
   wallet                Wallet?
+  subscriptions         MemberSubscription[]
+  gymCheckIns           GymCheckIn[]
 }
 
 model Coach {
@@ -201,6 +205,7 @@ model Sport {
   description       String?
   imageUrl          String?
   isActive          Boolean                      @default(true)
+  passingScore      Decimal?                     @db.Decimal(5, 2)
   createdAt         DateTime                     @default(now())
   updatedAt         DateTime                     @updatedAt
   classes           GroupClass[]
@@ -263,6 +268,12 @@ model SiteSetting {
   updatedAt                DateTime @updatedAt
 }
 
+model CenterSetting {
+  id            Int      @id @default(1)
+  minimumShifts Int      @default(20)
+  updatedAt     DateTime @updatedAt
+}
+
 model NewsletterSubscriber {
   id           Int              @id @default(autoincrement())
   email        String           @unique @db.VarChar(255)
@@ -278,6 +289,8 @@ model GroupClass {
   name                String              @db.VarChar(160)
   description         String?
   capacity            Int
+  totalSessions       Int?
+  sessionsPerWeek     Int?
   tuitionFee          Decimal             @db.Decimal(12, 2)
   registrationOpenAt  DateTime
   registrationCloseAt DateTime
@@ -601,6 +614,54 @@ model PrivateCourseAttendance {
   @@index([markedById, completedAt])
 }
 
+// Gói sử dụng phòng tập theo tháng, không kèm Coach
+model MembershipPlan {
+  id             Int                  @id @default(autoincrement())
+  name           String               @db.VarChar(160)
+  durationMonths Int
+  price          Decimal              @db.Decimal(12, 2)
+  description    String?
+  status         CourseStatus         @default(DRAFT)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  subscriptions  MemberSubscription[]
+
+  @@index([status, durationMonths])
+}
+
+// startDate/endDate chỉ có sau khi thanh toán đủ; hết hạn được suy ra từ endDate
+model MemberSubscription {
+  id          Int                @id @default(autoincrement())
+  memberId    Int
+  planId      Int
+  price       Decimal            @db.Decimal(12, 2)
+  startDate   DateTime?          @db.Date
+  endDate     DateTime?          @db.Date
+  status      SubscriptionStatus @default(PENDING_PAYMENT)
+  purchasedAt DateTime           @default(now())
+  member      Member             @relation(fields: [memberId], references: [userId])
+  plan        MembershipPlan     @relation(fields: [planId], references: [id])
+  orderItem   OrderItem?
+  checkIns    GymCheckIn[]
+
+  @@index([memberId, status, endDate])
+}
+
+model GymCheckIn {
+  id             Int                @id @default(autoincrement())
+  memberId       Int
+  subscriptionId Int
+  checkedInById  Int
+  method         CheckInMethod
+  checkedInAt    DateTime           @default(now())
+  member         Member             @relation(fields: [memberId], references: [userId])
+  subscription   MemberSubscription @relation(fields: [subscriptionId], references: [id])
+  checkedInBy    User               @relation(fields: [checkedInById], references: [id])
+
+  @@index([memberId, checkedInAt])
+  @@index([checkedInAt])
+}
+
 model SupportRequest {
   id          Int                 @id @default(autoincrement())
   requesterId Int
@@ -675,21 +736,23 @@ model ServiceOrder {
 }
 
 model OrderItem {
-  id                  Int                      @id @default(autoincrement())
-  orderId             Int
-  classRegistrationId Int?
-  privateEnrollmentId Int?                     @unique
-  itemType            OrderItemType
-  itemNameSnapshot    String                   @db.VarChar(200)
-  unitPrice           Decimal                  @db.Decimal(12, 2)
-  discountAmount      Decimal                  @default(0) @db.Decimal(12, 2)
-  finalAmount         Decimal                  @db.Decimal(12, 2)
-  createdAt           DateTime                 @default(now())
-  classRegistration   ClassRegistration?       @relation(fields: [classRegistrationId], references: [id])
-  order               ServiceOrder             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  privateEnrollment   PrivateCourseEnrollment? @relation(fields: [privateEnrollmentId], references: [id])
-  paymentAdjustments  PaymentAdjustment[]
-  refundRequests      RefundRequest[]
+  id                   Int                      @id @default(autoincrement())
+  orderId              Int
+  classRegistrationId  Int?
+  privateEnrollmentId  Int?                     @unique
+  memberSubscriptionId Int?                     @unique
+  itemType             OrderItemType
+  itemNameSnapshot     String                   @db.VarChar(200)
+  unitPrice            Decimal                  @db.Decimal(12, 2)
+  discountAmount       Decimal                  @default(0) @db.Decimal(12, 2)
+  finalAmount          Decimal                  @db.Decimal(12, 2)
+  createdAt            DateTime                 @default(now())
+  classRegistration    ClassRegistration?       @relation(fields: [classRegistrationId], references: [id])
+  order                ServiceOrder             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  privateEnrollment    PrivateCourseEnrollment? @relation(fields: [privateEnrollmentId], references: [id])
+  memberSubscription   MemberSubscription?      @relation(fields: [memberSubscriptionId], references: [id])
+  paymentAdjustments   PaymentAdjustment[]
+  refundRequests       RefundRequest[]
 
   @@index([orderId])
 }
@@ -1007,6 +1070,18 @@ model AssessmentMetricValue {
   @@index([definitionId])
 }
 
+enum SubscriptionStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  CANCELLED
+  REFUNDED
+}
+
+enum CheckInMethod {
+  QR
+  MANUAL
+}
+
 enum UserStatus {
   ACTIVE
   LOCKED
@@ -1152,6 +1227,7 @@ enum OrderStatus {
 enum OrderItemType {
   GROUP_CLASS
   PRIVATE_COURSE
+  MEMBERSHIP
   WALLET_TOP_UP
 }
 
@@ -1164,6 +1240,7 @@ enum PromoScope {
   ALL
   GROUP_CLASS
   PRIVATE_COURSE
+  MEMBERSHIP
 }
 
 enum PromotionStatus {

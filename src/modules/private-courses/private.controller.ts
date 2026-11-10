@@ -26,7 +26,9 @@ export class PrivateCourseController {
       const sportId = req.query.sportId === undefined
         ? undefined
         : Number(req.query.sportId);
-      const courses = await privateCourseService.listActiveCourses(sportId);
+      const courses = getAuthUser(req).role === 'CENTER_MANAGER'
+        ? await privateCourseService.listManagerCourses(sportId)
+        : await privateCourseService.listActiveCourses(sportId);
       res.status(200).json({ success: true, data: courses });
     } catch (error: unknown) {
       next(error);
@@ -58,6 +60,13 @@ export class PrivateCourseController {
     } catch (error: unknown) {
       next(error);
     }
+  }
+
+  async deleteCourse(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await privateCourseService.deleteDraftCourse(Number(req.params.id));
+      res.status(204).send();
+    } catch (error: unknown) { next(error); }
   }
 
   async assignCoach(

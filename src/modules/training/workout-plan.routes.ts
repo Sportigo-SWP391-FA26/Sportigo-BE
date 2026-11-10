@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { authenticate, authorize } from '../../middleware/auth.js'
+import { requirePlanSport } from './workout-plan-access.js'
 import {
   changePlanStatus,
   createPlan,
@@ -17,7 +18,7 @@ const coachOnly = [authenticate, authorize('COACH')]
 export const workoutPlanRouter = Router()
 workoutPlanRouter.get('/', ...canRead, listPlans)
 workoutPlanRouter.post('/', ...coachOnly, createPlan)
-workoutPlanRouter.get('/:id', ...canRead, getPlan)
-workoutPlanRouter.patch('/:id', ...coachOnly, updatePlan)
-workoutPlanRouter.patch('/:id/status', ...coachOnly, changePlanStatus)
-workoutPlanRouter.delete('/:id', ...coachOnly, deletePlan)
+workoutPlanRouter.get('/:id', ...canRead, requirePlanSport, getPlan)
+workoutPlanRouter.patch('/:id', ...coachOnly, requirePlanSport, updatePlan)
+workoutPlanRouter.patch('/:id/status', ...coachOnly, requirePlanSport, changePlanStatus)
+workoutPlanRouter.delete('/:id', ...coachOnly, requirePlanSport, deletePlan)

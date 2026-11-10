@@ -30,6 +30,11 @@ describe.skipIf(!hasTestDatabase)('FR-49 Giáo án dùng chung theo môn', () =>
     inactiveSport = await createSport(false)
     coach = await createCoach()
     otherCoach = await createCoach()
+    await prisma.coachSport.createMany({ data: [
+      { coachId: coach.id, sportId: sport.id },
+      { coachId: coach.id, sportId: otherSport.id },
+      { coachId: otherCoach.id, sportId: sport.id },
+    ] })
     manager = await createManager()
     member = await createMember()
   })

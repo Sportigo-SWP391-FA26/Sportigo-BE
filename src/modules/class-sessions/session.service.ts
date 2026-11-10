@@ -10,6 +10,13 @@ function dateOnly(value: Date) {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
 }
 
+function targetScheduleEnd(startDate: Date, totalSessions: number | null, sessionsPerWeek: number | null) {
+  if (!totalSessions || !sessionsPerWeek) return null
+  const end = dateOnly(startDate)
+  end.setUTCDate(end.getUTCDate() + Math.ceil(totalSessions / sessionsPerWeek) * 7 - 1)
+  return end
+}
+
 function timeOnDate(date: Date, time: { hours: number; minutes: number }) {
   const result = new Date(date)
   result.setUTCHours(time.hours, time.minutes, 0, 0)
@@ -296,9 +303,10 @@ export class SessionService {
     }
 
     // Kiểm tra thời gian thuộc khoảng thời gian của lớp.
+    const plannedEnd = targetScheduleEnd(groupClass.startDate, groupClass.totalSessions, groupClass.sessionsPerWeek)
     if (
       dateOnly(startsAt) < dateOnly(groupClass.startDate) ||
-      dateOnly(endsAt) > dateOnly(groupClass.endDate)
+      dateOnly(endsAt) > (plannedEnd ?? dateOnly(groupClass.endDate))
     ) {
       throw new HttpError(409,
         'Thời gian buổi học nằm ngoài khoảng thời gian diễn ra của lớp.',
@@ -377,7 +385,7 @@ export class SessionService {
     })
   }
 
-  async createSessions(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[]) {
+  async createSessions(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[], finalDate?: Date) {
     if (!Array.isArray(sessions) || sessions.length === 0) {
       throw new HttpError(400, 'Cần cung cấp ít nhất một buổi học.', 'SESSIONS_REQUIRED')
     }
@@ -407,6 +415,7 @@ export class SessionService {
           data: { ...session, status: SessionStatus.SCHEDULED },
         }))
       }
+      if (finalDate) await tx.groupClass.update({ where: { id: classId }, data: { endDate: finalDate } })
       return created
     })
   }
@@ -415,14 +424,14 @@ export class SessionService {
     classId: number,
     input: RecurringScheduleInput,
   ) {
-    const { sessions } = await this.buildRecurringSessions(classId, input)
+    const { sessions, finalDate } = await this.buildRecurringSessions(classId, input)
     const preview = await this.previewPreparedSessions(classId, sessions)
     if (!preview.canCreate) {
       throw new HttpError(409, 'Lịch lặp có buổi bị xung đột hoặc nằm ngoài availability của Coach.', 'RECURRING_SCHEDULE_CONFLICT', {
         conflicts: preview.occurrences.filter((item) => !item.valid),
       })
     }
-    return this.createSessions(classId, sessions)
+    return this.createSessions(classId, sessions, finalDate)
   }
 
   async previewRecurringSessions(classId: number, input: RecurringScheduleInput) {
@@ -451,13 +460,22 @@ export class SessionService {
       throw new HttpError(400, 'Cần chọn ít nhất một ca và khoảng ngày áp dụng.', 'RECURRENCE_REQUIRED')
     }
     const effectiveFrom = parseDateOnly(effectiveFromValue)
-    const effectiveTo = parseDateOnly(effectiveToValue)
+    let effectiveTo = parseDateOnly(effectiveToValue)
     if (!effectiveFrom || !effectiveTo || effectiveFrom > effectiveTo) {
       throw new HttpError(400, 'Khoảng ngày lặp không hợp lệ.', 'INVALID_RECURRENCE_RANGE')
     }
     const groupClass = await prisma.groupClass.findUnique({ where: { id: classId } })
     if (!groupClass) throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND')
-    if (effectiveFrom < dateOnly(groupClass.startDate) || effectiveTo > dateOnly(groupClass.endDate)) {
+    const plannedEnd = targetScheduleEnd(groupClass.startDate, groupClass.totalSessions, groupClass.sessionsPerWeek)
+    if (plannedEnd) effectiveTo = plannedEnd
+    if (groupClass.totalSessions && groupClass.sessionsPerWeek) {
+      if (patterns.length !== groupClass.sessionsPerWeek) {
+        throw new HttpError(400, `Chọn đúng ${groupClass.sessionsPerWeek} ca mỗi tuần.`, 'WEEKLY_SESSION_COUNT_MISMATCH')
+      }
+      const existing = await prisma.classSession.count({ where: { classId, status: { not: SessionStatus.CANCELLED } } })
+      if (existing > 0) throw new HttpError(409, 'Lớp đã có buổi học; không thể tạo lại toàn bộ lịch.', 'CLASS_ALREADY_SCHEDULED')
+    }
+    if (effectiveFrom < dateOnly(groupClass.startDate) || effectiveTo > (plannedEnd ?? dateOnly(groupClass.endDate))) {
       throw new HttpError(409, 'Khoảng ngày lặp nằm ngoài thời hạn của lớp.', 'RECURRENCE_OUTSIDE_CLASS_DATES')
     }
 
@@ -494,7 +512,14 @@ export class SessionService {
     }
     if (sessions.length === 0) throw new HttpError(400, 'Khoảng ngày không chứa buổi học nào.', 'NO_RECURRENCE_OCCURRENCES')
     sessions.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
-    return { sessions }
+    if (groupClass.totalSessions) {
+      if (sessions.length < groupClass.totalSessions) throw new HttpError(400, 'Khoảng ngày không đủ số buổi đã đăng ký.', 'INSUFFICIENT_CLASS_SESSIONS')
+      sessions.length = groupClass.totalSessions
+    }
+    const finalDate = groupClass.totalSessions
+      ? new Date(new Date(new Date(sessions.at(-1)!.startsAt).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10) + 'T00:00:00.000Z')
+      : undefined
+    return { sessions, finalDate }
   }
 
   private async previewPreparedSessions(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[]) {

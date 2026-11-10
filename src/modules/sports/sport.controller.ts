@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import sportService from './sport.service.js';
+
+const passingScoreSchema = z.object({ passingScore: z.number().min(0).max(100).nullable().optional() });
+const withValidScore = (body: Request['body']) => ({ ...body, ...passingScoreSchema.parse(body) });
 
 export class SportController {
   async getSports(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -13,7 +17,7 @@ export class SportController {
 
   async createSport(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const sport = await sportService.createSport(req.body);
+      const sport = await sportService.createSport(withValidScore(req.body));
       res.status(201).json({ success: true, message: 'Tạo môn thể thao thành công', data: sport });
     } catch (error: unknown) {
       next(error);
@@ -23,7 +27,7 @@ export class SportController {
   async updateSport(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = Number(req.params.id);
-      const sport = await sportService.updateSport(id, req.body);
+      const sport = await sportService.updateSport(id, withValidScore(req.body));
       res.status(200).json({ success: true, message: 'Cập nhật thành công', data: sport });
     } catch (error: unknown) {
       next(error);

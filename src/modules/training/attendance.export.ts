@@ -6,9 +6,9 @@ const CENTER_TIME_ZONE = 'Asia/Ho_Chi_Minh'
 
 const statusLabels: Record<AttendanceStatus, string> = {
   PRESENT: 'Có mặt',
-  LATE: 'Muộn',
+  LATE: 'Có mặt',
   ABSENT: 'Vắng',
-  EXCUSED: 'Có phép',
+  EXCUSED: 'Vắng',
 }
 
 const dateFormat = new Intl.DateTimeFormat('vi-VN', {
@@ -71,7 +71,7 @@ export async function toAttendanceWorkbook(items: AttendanceExportItem[]) {
   )
   styleHeader(detail)
 
-  // Chuyên cần = (Có mặt + Muộn) / số buổi đã điểm danh, cùng công thức trang Kết quả & Tiến độ
+  // Chuyên cần = Có mặt / số buổi đã điểm danh; bản ghi LATE cũ tính Có mặt, EXCUSED cũ tính Vắng
   const byMember = new Map<
     number,
     {
@@ -95,9 +95,7 @@ export async function toAttendanceWorkbook(items: AttendanceExportItem[]) {
     { header: 'Mã học viên', key: 'memberCode', width: 16 },
     { header: 'Học viên', key: 'memberName', width: 26 },
     { header: 'Có mặt', key: 'present', width: 10 },
-    { header: 'Muộn', key: 'late', width: 10 },
     { header: 'Vắng', key: 'absent', width: 10 },
-    { header: 'Có phép', key: 'excused', width: 10 },
     { header: 'Tổng buổi', key: 'total', width: 12 },
     { header: 'Chuyên cần', key: 'rate', width: 12 },
   ]
@@ -110,10 +108,8 @@ export async function toAttendanceWorkbook(items: AttendanceExportItem[]) {
         return {
           memberCode,
           memberName,
-          present: counts.PRESENT,
-          late: counts.LATE,
-          absent: counts.ABSENT,
-          excused: counts.EXCUSED,
+          present: counts.PRESENT + counts.LATE,
+          absent: counts.ABSENT + counts.EXCUSED,
           total,
           rate: total > 0 ? (counts.PRESENT + counts.LATE) / total : 0,
         }

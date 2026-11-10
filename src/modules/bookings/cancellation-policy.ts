@@ -11,11 +11,8 @@ export function assertClassRegistrationCancellable(
   if (hoursUntilStart <= 0) {
     throw new HttpError(409, 'Không thể hủy đăng ký sau khi lớp đã bắt đầu.', 'CLASS_ALREADY_STARTED')
   }
-  if (actorRole === 'MEMBER' && hoursUntilStart < cutoffHours) {
-    throw new HttpError(
-      409,
-      `Chỉ được hủy trước buổi học đầu tiên ít nhất ${cutoffHours} giờ.`,
-      'CANCELLATION_DEADLINE_PASSED',
-    )
-  }
+  // Receptionist follows the same member cancellation policy. Manager-driven
+  // class cancellation is handled separately and refunds the full amount.
+  void actorRole
+  return hoursUntilStart >= cutoffHours ? 1 : 0.5
 }

@@ -122,9 +122,9 @@ export const flow2Paths = {
   '/group-classes': {
     get: operation('Group Classes', 'Danh sách lớp nhóm dành cho quản lý', { responses: ok }),
     post: operation('Group Classes', 'Tạo lớp nhóm dạng nháp', {
-      requestBody: jsonBody(['sportId', 'coachId', 'name', 'capacity', 'tuitionFee', 'registrationOpenAt', 'registrationCloseAt', 'startDate', 'endDate'], {
+      requestBody: jsonBody(['sportId', 'coachId', 'name', 'capacity', 'totalSessions', 'sessionsPerWeek', 'tuitionFee', 'registrationOpenAt', 'registrationCloseAt', 'startDate', 'endDate'], {
         sportId: { type: 'integer' }, coachId: { type: 'integer' }, name: { type: 'string' },
-        description: { type: 'string' }, capacity: { type: 'integer', minimum: 1 }, tuitionFee: { type: 'number', minimum: 0 },
+        description: { type: 'string' }, capacity: { type: 'integer', minimum: 1 }, totalSessions: { type: 'integer', minimum: 1 }, sessionsPerWeek: { type: 'integer', minimum: 1 }, tuitionFee: { type: 'number', minimum: 0 },
         registrationOpenAt: { type: 'string', format: 'date-time' }, registrationCloseAt: { type: 'string', format: 'date-time' },
         startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' },
       }),
@@ -140,6 +140,8 @@ export const flow2Paths = {
         name: { type: 'string' },
         description: { type: 'string', nullable: true },
         capacity: { type: 'integer', minimum: 1 },
+        totalSessions: { type: 'integer', minimum: 1 },
+        sessionsPerWeek: { type: 'integer', minimum: 1 },
         tuitionFee: { type: 'number', minimum: 0 },
         registrationOpenAt: { type: 'string', format: 'date-time' },
         registrationCloseAt: { type: 'string', format: 'date-time' },
@@ -213,7 +215,7 @@ export const flow2Paths = {
     get: operation('Bookings', 'Lịch lớp nhóm và đăng ký chờ thanh toán của Member', { responses: ok }),
   },
   '/bookings/registrations/{id}/cancel': {
-    post: operation('Bookings', 'Hủy đăng ký trước 48 giờ và tự động hoàn tiền vào ví', { parameters: [id()], responses: ok }),
+    post: operation('Bookings', 'Hủy đăng ký trước buổi đầu: hoàn 100% nếu còn ít nhất 48 giờ, hoàn 50% nếu dưới 48 giờ', { parameters: [id()], responses: ok }),
   },
   '/group-classes/{id}/waitlist': {
     post: operation('Waitlist', 'Tham gia danh sách chờ khi lớp đầy', { parameters: [id()], responses: created }),

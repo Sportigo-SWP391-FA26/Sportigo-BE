@@ -66,7 +66,7 @@ describe('FR-08 Receptionist tạo Member tại quầy', () => {
     expect(response.body).toMatchObject({ code: 'MEM-1A2B3C4D', status: 'INACTIVE', role: 'MEMBER', emailSent: true })
     const data = prisma.user.create.mock.calls[0][0].data
     expect(data).toMatchObject({ email: 'binh@gmail.com', status: 'INACTIVE', role: { connect: { name: 'MEMBER' } } })
-    expect(data.member.create.memberCode).toMatch(/^MEM-[0-9A-F]{8}$/)
+    expect(data.member.create.memberCode).toMatch(/^SG[2-9A-HJKMNP-Z]{6}$/)
     expect(data.member.create.dateOfBirth).toEqual(new Date('2000-05-20T00:00:00.000Z'))
     expect(data.passwordHash).toMatch(/^\$2[aby]\$12\$/)
     expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ actorId: 3, action: 'MEMBER_CREATED', entityId: '20' })

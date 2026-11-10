@@ -72,4 +72,24 @@ describe('automatic class cancellation refund', () => {
     expect(result).toEqual({ amount: 450, alreadyProcessed: true })
     expect(tx.serviceOrder.findFirst).not.toHaveBeenCalled()
   })
+
+  it('credits only 50% when cancellation is late', async () => {
+    const tx = createTx()
+    tx.walletTransaction.findUnique.mockResolvedValue(null)
+    tx.serviceOrder.findFirst.mockResolvedValue({
+      id: 20, memberId: 2, finalAmount: decimal(400),
+      items: [{ id: 40, finalAmount: decimal(400), paymentAdjustments: [] }],
+      payments: [{ id: 31, status: 'SUCCESS', amount: decimal(400), adjustments: [] }],
+    })
+    tx.wallet.upsert.mockResolvedValue({ id: 9, balance: decimal(25), version: 3 })
+    tx.wallet.updateMany.mockResolvedValue({ count: 1 })
+    const result = await refundClassRegistrationToWallet(tx as never, {
+      registrationId: 12, memberId: 2, actorId: 2, reason: 'Hủy muộn',
+      idempotencyKey: 'CLASS_REGISTRATION_AUTO_REFUND:12', refundRate: 0.5,
+    })
+    expect(result.amount).toBe(200)
+    expect(tx.paymentAdjustment.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amount: decimal(200) }) })
+    expect(tx.walletTransaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amount: decimal(200), balanceAfter: decimal(225) }) })
+    expect(tx.serviceOrder.update).toHaveBeenCalledWith({ where: { id: 20 }, data: { status: 'PARTIALLY_REFUNDED' } })
+  })
 })

@@ -48,6 +48,10 @@ export function findCoach(userId: number) {
   })
 }
 
+export function coachHasSport(coachId: number, sportId: number) {
+  return prisma.coachSport.findUnique({ where: { coachId_sportId: { coachId, sportId } }, select: { coachId: true } })
+}
+
 export function findPlans(
   filter: {
     sportId?: number
@@ -56,8 +60,10 @@ export function findPlans(
     search?: string
   },
   page: { skip: number; take: number },
+  coachId?: number,
 ) {
   const where: Prisma.WorkoutPlanWhereInput = {
+    sport: coachId ? { coachSports: { some: { coachId } } } : undefined,
     sportId: filter.sportId,
     level: filter.level,
     status: filter.status,

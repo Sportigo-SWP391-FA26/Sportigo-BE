@@ -12,6 +12,7 @@ router.post('/', authorize('CENTER_MANAGER'), groupClassController.createGroupCl
 router.patch('/:id', authorize('CENTER_MANAGER'), groupClassController.updateGroupClass);
 router.patch('/:id/status', authorize('CENTER_MANAGER'), groupClassController.updateStatus);
 router.patch('/:id/coach', authorize('CENTER_MANAGER'), groupClassController.assignCoach);
+router.delete('/:id', authorize('CENTER_MANAGER'), groupClassController.deleteGroupClass);
 router.get(
   '/:id/sessions',
   authorize('CENTER_MANAGER', 'RECEPTIONIST', 'COACH', 'MEMBER'),

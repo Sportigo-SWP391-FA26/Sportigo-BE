@@ -72,7 +72,11 @@ export function findMemberProfile(memberId: number, coachId?: number) {
             where: byCoach ? { coachId } : {},
             orderBy: [{ assessmentDate: 'desc' }, { id: 'desc' }],
             take: 5,
-            select: { id: true, assessmentDate: true, score: true, coachComment: true, recommendation: true, nextAssessmentDate: true, coach: coachName },
+            select: {
+              id: true, assessmentDate: true, score: true, coachComment: true, recommendation: true, nextAssessmentDate: true, coach: coachName,
+              classRegistration: { select: { groupClass: { select: { sport: { select: { passingScore: true } } } } } },
+              privateEnrollment: { select: { privateCourse: { select: { sport: { select: { passingScore: true } } } } } },
+            },
           },
         },
       },

@@ -114,7 +114,7 @@ export class BookingService {
    * FR-22: Xem chi tiết lớp nhóm, lịch buổi học, học phí và số chỗ còn lại
    */
   async getClassDetail(classId: number) {
-    const groupClass = await prisma.groupClass.findUnique({
+    const [groupClass, pendingCount] = await Promise.all([prisma.groupClass.findUnique({
       where: { id: classId, status: ClassStatus.OPEN },
       include: {
         sport: true,
@@ -134,16 +134,15 @@ export class BookingService {
           },
         },
       },
-    });
+    }), prisma.classRegistration.count({
+      where: { classId, status: RegistrationStatus.PENDING_PAYMENT },
+    })]);
 
     if (!groupClass) {
       throw new HttpError(404, 'Không tìm thấy thông tin lớp học.', 'CLASS_NOT_FOUND');
     }
 
     const confirmedCount = groupClass._count.registrations;
-    const pendingCount = await prisma.classRegistration.count({
-      where: { classId, status: RegistrationStatus.PENDING_PAYMENT },
-    });
     const occupiedCount = confirmedCount + pendingCount;
     const remainingSeats = groupClass.capacity - occupiedCount;
 
@@ -522,7 +521,7 @@ export class BookingService {
       if (!currentFirstSession) {
         throw new HttpError(409, 'Lớp học này chưa có lịch trình các buổi học.', 'CLASS_HAS_NO_SESSIONS');
       }
-      assertClassRegistrationCancellable(currentFirstSession.startsAt, actor.role, new Date())
+      const refundRate = assertClassRegistrationCancellable(currentFirstSession.startsAt, actor.role, new Date())
 
       let refundAmount = 0;
       const cancelled = await tx.classRegistration.updateMany({
@@ -541,7 +540,8 @@ export class BookingService {
           registrationId,
           memberId,
           actorId: actor.id,
-          reason: `Hoàn tiền 100% do hủy lớp nhóm đúng hạn: ${currentRegistration.groupClass.name}`,
+          reason: `Hoàn tiền ${refundRate * 100}% do hủy lớp nhóm: ${currentRegistration.groupClass.name}`,
+          refundRate,
           idempotencyKey: `CLASS_REGISTRATION_AUTO_REFUND:${registrationId}`,
         });
         refundAmount = refund.amount;
@@ -571,7 +571,7 @@ export class BookingService {
         status: refundAmount > 0 ? RegistrationStatus.REFUNDED : RegistrationStatus.CANCELLED,
         refundedAmount: refundAmount,
         message: refundAmount > 0
-          ? 'Hủy đăng ký lớp thành công và đã tự động hoàn tiền vào ví.'
+          ? `Hủy đăng ký lớp thành công. Đã hoàn ${refundRate * 100}% số tiền đã thanh toán (${refundAmount.toLocaleString('vi-VN')} ₫) vào ví.`
           : 'Hủy đăng ký lớp thành công.',
       };
     }));

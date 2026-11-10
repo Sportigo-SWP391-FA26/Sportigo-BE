@@ -16,6 +16,8 @@ describe('Coach availability validation', () => {
 
   it('rejects fewer than 20 shifts', () => {
     expect(() => validateAvailabilitySelections(valid.slice(0, 19))).toThrow('tối thiểu 20 ca')
+    expect(() => validateAvailabilitySelections(valid, 21)).toThrow('tối thiểu 21 ca')
+    expect(validateAvailabilitySelections(valid, 12)).toMatchObject({ totalShifts: 20 })
   })
 
   it('rejects fewer than 5 selected days', () => {

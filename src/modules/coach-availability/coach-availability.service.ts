@@ -5,7 +5,8 @@ import { audit } from '../../lib/audit.js'
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 import { sendAvailabilityEmail } from './coach-availability.mail.js'
 import { AVAILABILITY_RULES, AVAILABILITY_SHIFTS, shiftByCode } from './coach-availability.constants.js'
-import { validateAvailabilitySelections, type AvailabilitySelectionInput } from './coach-availability.rules.js'
+import { getCenterSettings } from '../center-settings/center-settings.service.js'
+import { validateAvailabilitySelections,type AvailabilitySelectionInput } from './coach-availability.rules.js'
 
 type SelectionInput = AvailabilitySelectionInput
 type Db = Prisma.TransactionClient
@@ -164,7 +165,7 @@ export async function getMyCalendar(coachId: number, monthInput: string) {
     timeZone: 'Asia/Ho_Chi_Minh',
     shifts: AVAILABILITY_SHIFTS,
     submission: { ...submission, selections },
-    rules: AVAILABILITY_RULES,
+    rules: { ...AVAILABILITY_RULES, ...(await getCenterSettings()) },
   }
 }
 
@@ -199,7 +200,7 @@ export async function submit(coachId: number, monthInput: string) {
   const current = await ensureDraft(coachId, month)
   assertSubmissionWindow(month, current.status)
   if (!['DRAFT', 'REJECTED'].includes(current.status)) throw new HttpError(409, 'Lịch này không thể gửi duyệt', 'SUBMISSION_NOT_SUBMITTABLE')
-  const summary = validateAvailabilitySelections(current.selections)
+  const summary = validateAvailabilitySelections(current.selections, (await getCenterSettings()).minimumShifts)
   const managers = await prisma.user.findMany({ where: { role: { name: 'CENTER_MANAGER' }, status: 'ACTIVE', deletedAt: null }, select: { id: true, email: true } })
   const updated = await prisma.$transaction(async (tx) => {
     const result = await tx.coachAvailabilitySubmission.update({
@@ -242,7 +243,7 @@ export async function reviewSubmission(id: number, managerId: number, input: { d
     await emailSafely(current.coach.user.email, 'Lịch availability cần chỉnh sửa', `Lịch của bạn bị từ chối. Lý do: ${input.reason}`)
     return updated
   }
-  const summary = validateAvailabilitySelections(current.selections)
+  const summary = validateAvailabilitySelections(current.selections, (await getCenterSettings()).minimumShifts)
   const locked = await assignedSlots(current.coachId, current.month)
   for (const key of locked) {
     if (!current.selections.some((selection) => slotKey(selection.dayOfWeek, selection.shiftCode) === key)) {
@@ -332,7 +333,7 @@ export async function reviewChangeRequest(id: number, managerId: number, input: 
     return rejected
   }
   const replacementSelections = request.submission.selections.map((selection) => selection.id === request.submission.selections.find((item) => item.dayOfWeek === request.oldDayOfWeek && item.shiftCode === request.oldShiftCode)?.id ? { dayOfWeek: request.newDayOfWeek, shiftCode: request.newShiftCode } : { dayOfWeek: selection.dayOfWeek, shiftCode: selection.shiftCode })
-  validateAvailabilitySelections(replacementSelections)
+  validateAvailabilitySelections(replacementSelections, (await getCenterSettings()).minimumShifts)
   const month = request.submission.month
   const endExclusive = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1))
   const cutoff = new Date(Date.now() + 7 * DAY_MS)
