@@ -30,6 +30,8 @@ describe.skipIf(!hasTestDatabase)('FR-50 Mục trong giáo án', () => {
     await resetDatabase()
     sportId = (await createSport()).id
     coach = await createCoach()
+    // Coach chỉ thao tác được giáo án thuộc môn chuyên môn được phân công
+    await prisma.coachSport.create({ data: { coachId: coach.id, sportId } })
     manager = await createManager()
   })
 

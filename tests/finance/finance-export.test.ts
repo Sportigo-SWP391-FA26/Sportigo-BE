@@ -21,7 +21,7 @@ describe('finance exports', () => {
     expect(classes.subarray(0, 2).toString()).toBe('PK')
     const workbook = new ExcelJS.Workbook()
     await workbook.xlsx.load(revenue as never)
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(['Tổng quan', 'Chi tiết giao dịch', 'Doanh thu dịch vụ', 'Hoàn tiền', 'Đối soát kênh'])
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(['Tổng quan', 'Chi tiết giao dịch', 'Doanh thu dịch vụ', 'Doanh thu theo môn', 'Hoàn tiền', 'Đối soát kênh'])
     expect(workbook.getWorksheet('Chi tiết giao dịch')?.getCell('B6').value).toBe('VNP-001')
     expect(workbook.getWorksheet('Đối soát kênh')?.getCell('A9').value).toBe('Nạp ví Sportigo')
   })
