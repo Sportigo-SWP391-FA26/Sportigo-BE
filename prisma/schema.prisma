@@ -54,6 +54,12 @@ model User {
   role                            Role                             @relation(fields: [roleId], references: [id])
   walletTransactionsCreated       WalletTransaction[]              @relation("WalletTransactionCreator")
   gymCheckInsRecorded             GymCheckIn[]
+  // note: FR-66/67 quan hệ ngược cho dạy thay, ca làm và chấm công
+  sessionCoachChanges             ClassSession[]                   @relation("SessionCoachChangedBy")
+  staffShifts                     StaffShift[]                     @relation("StaffShiftStaff")
+  createdStaffShifts              StaffShift[]                     @relation("StaffShiftCreator")
+  timeClockAdjustments            TimeClockAdjustment[]            @relation("TimeClockAdjustmentRequester")
+  reviewedTimeClockAdjustments    TimeClockAdjustment[]            @relation("TimeClockAdjustmentReviewer")
 
   @@index([roleId, status])
   @@index([deletedAt])
@@ -151,6 +157,9 @@ model Coach {
   createdWorkoutPlans            WorkoutPlan[]
   markedPrivateCourseAttendances PrivateCourseAttendance[]
   completedWorkoutPlanItems      WorkoutPlanItemCompletion[]
+  // note: FR-66 các buổi coach dạy thực tế / bị thay
+  taughtSessions                 ClassSession[]                   @relation("SessionActualCoach")
+  replacedSessions               ClassSession[]                   @relation("SessionReplacedCoach")
 }
 
 // Hồ sơ nhân sự lễ tân, giữ mã nhân sự giống coachCode của Coach (FR-07)
@@ -334,14 +343,72 @@ model ClassSession {
   updatedAt   DateTime             @updatedAt
   note        String?
   status      SessionStatus        @default(SCHEDULED)
+  // note: FR-66 coach dạy thực tế của buổi. NULL = theo coach của lớp; có giá trị = đã chốt hoặc dạy thay
+  coachId           Int?
+  // note: FR-66 coach chính bị thay (chỉ có khi dạy thay), lý do và người ghi nhận
+  replacedCoachId   Int?
+  coachChangeReason String?   @db.VarChar(300)
+  coachChangedById  Int?
+  coachChangedAt    DateTime?
+  // note: FR-66 coach chính vắng (lỗi của coach → không trả tiền buổi, trừ KPI ở giai đoạn sau)
+  coachAbsent       Boolean   @default(false)
   groupClass  GroupClass           @relation(fields: [classId], references: [id], onDelete: Cascade)
   room        Room                 @relation(fields: [roomId], references: [id])
+  coach         Coach?             @relation("SessionActualCoach", fields: [coachId], references: [userId])
+  replacedCoach Coach?             @relation("SessionReplacedCoach", fields: [replacedCoachId], references: [userId])
+  coachChangedBy User?             @relation("SessionCoachChangedBy", fields: [coachChangedById], references: [id])
   changes     ScheduleChange[]
   attendances SessionAttendance[]
   assessments ProgressAssessment[]
 
   @@index([classId, startsAt])
   @@index([roomId, startsAt, endsAt])
+  @@index([coachId, startsAt])
+}
+
+// FR-67: ca làm của lễ tân do Manager xếp, kèm giờ vào/ra thực tế (chấm công) trên chính ca đó
+model StaffShift {
+  id              Int                   @id @default(autoincrement())
+  staffId         Int
+  startsAt        DateTime
+  endsAt          DateTime
+  status          StaffShiftStatus      @default(SCHEDULED)
+  note            String?               @db.VarChar(300)
+  cancelReason    String?               @db.VarChar(300)
+  clockInAt       DateTime?
+  clockOutAt      DateTime?
+  createdById     Int
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  staff           User                  @relation("StaffShiftStaff", fields: [staffId], references: [id])
+  createdBy       User                  @relation("StaffShiftCreator", fields: [createdById], references: [id])
+  adjustments     TimeClockAdjustment[]
+
+  @@index([staffId, startsAt])
+  @@index([startsAt])
+}
+
+// FR-67: yêu cầu sửa giờ vào/ra (quên chấm công, chấm sai) → Manager duyệt mới ghi vào ca
+model TimeClockAdjustment {
+  id               Int                       @id @default(autoincrement())
+  shiftId          Int
+  requestedById    Int
+  clockInAt        DateTime?
+  clockOutAt       DateTime?
+  oldClockInAt     DateTime?
+  oldClockOutAt    DateTime?
+  reason           String                    @db.VarChar(300)
+  status           TimeClockAdjustmentStatus @default(PENDING)
+  reviewedById     Int?
+  reviewedAt       DateTime?
+  reviewNote       String?                   @db.VarChar(300)
+  createdAt        DateTime                  @default(now())
+  shift            StaffShift                @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  requestedBy      User                      @relation("TimeClockAdjustmentRequester", fields: [requestedById], references: [id])
+  reviewedBy       User?                     @relation("TimeClockAdjustmentReviewer", fields: [reviewedById], references: [id])
+
+  @@index([status, createdAt])
+  @@index([shiftId, status])
 }
 
 model ScheduleChange {
@@ -1101,6 +1168,19 @@ enum ClassStatus {
   CANCELLED
   IN_PROGRESS
   COMPLETED
+}
+
+// note: FR-67 trạng thái ca làm (giờ vào/ra nằm ở cột clockInAt/clockOutAt)
+enum StaffShiftStatus {
+  SCHEDULED
+  CANCELLED
+}
+
+// note: FR-67 trạng thái yêu cầu sửa chấm công
+enum TimeClockAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum SessionStatus {
