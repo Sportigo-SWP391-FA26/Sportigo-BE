@@ -1,6 +1,7 @@
 import type { ClassStatus, SessionStatus } from '@prisma/client'
 import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
+import { effectiveCoachId } from '../../lib/session-coach.js' // note: FR-66
 import type { AuthUser } from '../../middleware/auth.js'
 import type {
   ExportAttendanceQuery,
@@ -57,7 +58,8 @@ export async function markAttendance(
   input: MarkAttendanceInput,
 ) {
   const session = await getSessionOrThrow(sessionId)
-  if (session.groupClass.coachId !== user.id) throw forbidden()
+  // note: FR-66 người dạy thực tế (kể cả dạy thay) mới được điểm danh
+  if (effectiveCoachId(session) !== user.id) throw forbidden()
   if (isAttendanceLocked(session)) {
     throw new HttpError(409, BR_MESSAGES.BR43, 'ATTENDANCE_LOCKED')
   }
@@ -104,7 +106,7 @@ export async function markAttendance(
 
 export async function getSessionAttendance(user: AuthUser, sessionId: number) {
   const session = await getSessionOrThrow(sessionId)
-  if (user.role === 'COACH' && session.groupClass.coachId !== user.id) {
+  if (user.role === 'COACH' && effectiveCoachId(session) !== user.id) { // note: FR-66
     throw forbidden()
   }
 

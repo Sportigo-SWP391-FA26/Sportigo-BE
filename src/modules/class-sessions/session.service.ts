@@ -4,6 +4,7 @@ import coachService from '../coaches/coach.service.js'
 import { HttpError } from '../../lib/http-error.js'
 import { prisma } from '../../lib/prisma.js'
 import { audit } from '../../lib/audit.js'
+import { taughtByCoachWhere } from '../../lib/session-coach.js' // note: FR-66
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 
 function dateOnly(value: Date) {
@@ -123,9 +124,8 @@ export class SessionService {
       where: {
         status: SessionStatus.SCHEDULED,
         NOT: excludeSessionId ? { id: excludeSessionId } : undefined,
-        groupClass: {
-          coachId,
-        },
+        // note: FR-66 tính cả buổi coach dạy thay, bỏ buổi coach đã được người khác dạy thay
+        ...taughtByCoachWhere(coachId),
         AND: [
           { startsAt: { lt: endsAt } },
           { endsAt: { gt: startsAt } },

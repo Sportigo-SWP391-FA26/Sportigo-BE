@@ -344,6 +344,11 @@ export class GroupClassService {
     if (groupClass.coachId === newCoachId) return groupClass;
 
     const updatedClass = await prisma.$transaction(async (tx) => {
+      // note: FR-66 chốt coach cũ cho các buổi đã diễn ra trước khi đổi coach lớp, để buổi cũ không bị tính sang coach mới
+      await tx.classSession.updateMany({
+        where: { classId, coachId: null, startsAt: { lte: new Date() } },
+        data: { coachId: groupClass.coachId },
+      });
       const updated = await tx.groupClass.update({
         where: { id: classId },
         data: { coachId: newCoachId },

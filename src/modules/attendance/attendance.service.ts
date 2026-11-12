@@ -18,7 +18,8 @@ export class AttendanceService {
       where: { id: session.classId },
       select: { coachId: true },
     });
-    if (groupClass?.coachId !== data.markedById) {
+    // note: FR-66 người dạy thực tế (kể cả dạy thay) mới được điểm danh
+    if ((session.coachId ?? groupClass?.coachId) !== data.markedById) {
       throw new HttpError(403, 'Bạn không được phân công phụ trách buổi học này.', 'FORBIDDEN');
     }
 
@@ -79,7 +80,7 @@ export class AttendanceService {
       where: { id: session.classId },
       select: { coachId: true },
     });
-    if (role === 'COACH' && groupClass?.coachId !== requesterId) {
+    if (role === 'COACH' && (session.coachId ?? groupClass?.coachId) !== requesterId) { // note: FR-66
       throw new HttpError(403, 'Bạn không được phân công phụ trách buổi học này.', 'FORBIDDEN');
     }
     return await prisma.sessionAttendance.findMany({
