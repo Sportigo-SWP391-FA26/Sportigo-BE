@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { prisma } = vi.hoisted(() => ({ prisma: {
   groupClass: { findUnique: vi.fn() }, classRegistration: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() }, classWaitlist: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   classWaitlistInvitation: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
-  serviceOrder: { create: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() }, orderItem: { create: vi.fn() },
+  serviceOrder: { create: vi.fn(), findMany: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(async () => ({ id: 1, memberId: 1, orderNumber: 'ORD-1', payments: [] })) }, orderItem: { create: vi.fn() },
   payment: { findMany: vi.fn(), updateMany: vi.fn() }, onlineTransaction: { updateMany: vi.fn() }, $transaction: vi.fn(),
   // FR-54: offerNextInTransaction tạo thông báo mời cho người được chọn
   notification: { createMany: vi.fn(async () => ({ count: 1 })) },
@@ -163,7 +163,7 @@ describe('FR-25 / FR-26 Waitlist', () => {
         id: 11,
         waitlistInvitation: { id: 90, waitlistId: 8, waitlist: { memberId: 2, classId: 1 } },
         items: [{ classRegistrationId: 12 }],
-        payments: [{ id: 14 }],
+        payments: [{ id: 14, status: 'PENDING', amount: 0, adjustments: [] }],
       }])
     prisma.classWaitlist.findMany
       .mockResolvedValueOnce([])

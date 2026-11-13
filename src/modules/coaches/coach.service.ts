@@ -1,7 +1,9 @@
 import { AvailabilityStatus } from '@prisma/client';
+import { centerDateTime, wallClock } from '../../lib/center-time.js';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { prisma } from '../../lib/prisma.js';
+import { taughtByCoachWhere } from '../../lib/session-coach.js'; // note: FR-66
 
 type ScheduleExceptionWithRoom = {
   sessionDate: Date;
@@ -9,6 +11,7 @@ type ScheduleExceptionWithRoom = {
   rescheduledStartsAt: Date | null;
   rescheduledEndsAt: Date | null;
   newRoom: object | null;
+  newCoachId: number | null;
 };
 
 export class CoachService {
@@ -306,7 +309,8 @@ export class CoachService {
     const [classSessions, schedules] = await Promise.all([
       prisma.classSession.findMany({
         where: {
-          groupClass: { coachId },
+          // note: FR-66 lịch coach gồm cả buổi dạy thay, bỏ buổi đã giao cho người khác dạy thay
+          ...taughtByCoachWhere(coachId),
           status: { in: ['SCHEDULED', 'CANCELLED'] },
           startsAt: { lt: endExclusive },
           endsAt: { gt: from },
@@ -320,11 +324,8 @@ export class CoachService {
       prisma.privateCourseSchedule.findMany({
         where: {
           status: 'ACTIVE',
-          enrollment: {
-            coachId,
-            status: 'ACTIVE',
-          },
-          OR: [
+          enrollment: { status: 'ACTIVE' },
+          AND: [{ OR: [{ enrollment: { coachId } }, { exceptions: { some: { newCoachId: coachId, action: 'RESCHEDULED' } } }] }, { OR: [
             {
               enrollment: { startDate: { lte: to }, expiryDate: { gte: from } },
               effectiveFrom: { lte: to },
@@ -338,7 +339,7 @@ export class CoachService {
                 },
               },
             },
-          ],
+          ] }],
         },
         include: {
           room: true,
@@ -391,24 +392,13 @@ export class CoachService {
         const originalDate = occurrence.toISOString().slice(0, 10);
         generatedDates.add(originalDate);
         const exception = exceptions.get(originalDate);
+        if ((exception?.action === 'RESCHEDULED' ? exception.newCoachId ?? schedule.enrollment.coachId : schedule.enrollment.coachId) !== coachId) continue;
         const startsAt = exception?.action === 'RESCHEDULED' && exception.rescheduledStartsAt
           ? exception.rescheduledStartsAt
-          : new Date(Date.UTC(
-            occurrence.getUTCFullYear(),
-            occurrence.getUTCMonth(),
-            occurrence.getUTCDate(),
-            schedule.startTime.getUTCHours(),
-            schedule.startTime.getUTCMinutes(),
-          ));
+          : centerDateTime(occurrence, wallClock(schedule.startTime));
         const endsAt = exception?.action === 'RESCHEDULED' && exception.rescheduledEndsAt
           ? exception.rescheduledEndsAt
-          : new Date(Date.UTC(
-            occurrence.getUTCFullYear(),
-            occurrence.getUTCMonth(),
-            occurrence.getUTCDate(),
-            schedule.endTime.getUTCHours(),
-            schedule.endTime.getUTCMinutes(),
-          ));
+          : centerDateTime(occurrence, wallClock(schedule.endTime));
         if (startsAt < from || startsAt >= endExclusive) continue;
         items.push({
           type: 'PRIVATE_COURSE',
@@ -424,6 +414,7 @@ export class CoachService {
         });
       }
       for (const exception of scheduleExceptions) {
+        if ((exception.newCoachId ?? schedule.enrollment.coachId) !== coachId) continue;
         const originalDate = exception.sessionDate.toISOString().slice(0, 10);
         if (
           generatedDates.has(originalDate) ||

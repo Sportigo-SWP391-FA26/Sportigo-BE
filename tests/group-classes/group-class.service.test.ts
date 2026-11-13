@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { prisma } = vi.hoisted(() => ({ prisma: {
   groupClass: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
   sport: { findUnique: vi.fn() }, coach: { findUnique: vi.fn() },
-  classSession: { findFirst: vi.fn() }, privateCourseSchedule: { findFirst: vi.fn() },
+  classSession: { findFirst: vi.fn(), count: vi.fn() }, privateCourseSchedule: { findFirst: vi.fn() },
   coachAvailability: { findMany: vi.fn() },
   auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() },
   $transaction: vi.fn(),
 } }))
-vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), ClassStatus: { DRAFT: 'DRAFT', OPEN: 'OPEN' }, CoachStatus: { ACTIVE: 'ACTIVE', INACTIVE: 'INACTIVE' }, SessionStatus: { SCHEDULED: 'SCHEDULED' } }))
+vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), ClassStatus: { DRAFT: 'DRAFT', OPEN: 'OPEN', CLOSED: 'CLOSED', IN_PROGRESS: 'IN_PROGRESS', COMPLETED: 'COMPLETED', CANCELLED: 'CANCELLED' }, CoachStatus: { ACTIVE: 'ACTIVE', INACTIVE: 'INACTIVE' }, SessionStatus: { SCHEDULED: 'SCHEDULED' } }))
 import { GroupClassService } from '../../src/modules/group-classes/group-class.service.js'
 const service = new GroupClassService()
 // BR-09 được kiểm tra trong test 'từ chối mốc thời gian sai thứ tự' bên dưới
@@ -73,8 +73,27 @@ describe('FR-15 / FR-16 Group class', () => {
     })
   })
   it('does not open a class with missing required information', async () => {
-    prisma.groupClass.findUnique.mockResolvedValue({ id: 1, name: '', capacity: 10, tuitionFee: 100 })
+    prisma.groupClass.findUnique.mockResolvedValue({ id: 1, name: '', capacity: 10, tuitionFee: 100, status: 'DRAFT', startDate: new Date(Date.now() + 86_400_000) })
     await expect(service.updateClassStatus(1, 'OPEN' as never)).rejects.toThrow('thiếu thông tin cơ bản')
+    expect(prisma.groupClass.update).not.toHaveBeenCalled()
+  })
+  it('chỉ cho chuyển trạng thái lớp theo luồng hợp lệ', async () => {
+    const future = new Date(Date.now() + 86_400_000)
+    const past = new Date(Date.now() - 86_400_000)
+    const cases: Array<[string, string, Date, string]> = [
+      ['CANCELLED', 'OPEN', future, 'INVALID_CLASS_STATUS_TRANSITION'],
+      ['COMPLETED', 'OPEN', past, 'INVALID_CLASS_STATUS_TRANSITION'],
+      ['DRAFT', 'COMPLETED', future, 'INVALID_CLASS_STATUS_TRANSITION'],
+      ['CLOSED', 'OPEN', past, 'CLASS_ALREADY_STARTED'],
+      ['OPEN', 'IN_PROGRESS', future, 'CLASS_NOT_STARTED'],
+    ]
+    for (const [from, to, startDate, code] of cases) {
+      prisma.groupClass.findUnique.mockResolvedValue({ id: 1, name: 'Lớp', capacity: 10, tuitionFee: 100, status: from, startDate })
+      await expect(service.updateClassStatus(1, to as never)).rejects.toMatchObject({ code })
+    }
+    prisma.groupClass.findUnique.mockResolvedValue({ id: 1, name: 'Lớp', capacity: 10, tuitionFee: 100, status: 'IN_PROGRESS', startDate: past })
+    prisma.classSession.count.mockResolvedValue(2)
+    await expect(service.updateClassStatus(1, 'COMPLETED' as never)).rejects.toMatchObject({ code: 'CLASS_HAS_UPCOMING_SESSIONS' })
     expect(prisma.groupClass.update).not.toHaveBeenCalled()
   })
   it('rejects assigning an inactive coach', async () => {

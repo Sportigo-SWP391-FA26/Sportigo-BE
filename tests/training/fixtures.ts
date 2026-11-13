@@ -1,3 +1,4 @@
+import { invalidateAuthState } from '../../src/lib/auth-state.js'
 import type {
   ClassStatus,
   CourseStatus,
@@ -21,6 +22,8 @@ function uniqueKey() {
 
 // Xóa sạch database test (giữ bảng _prisma_migrations). Có chặn an toàn.
 export async function resetDatabase() {
+  // id được đánh lại từ đầu nên bỏ trạng thái tài khoản đã cache của lần chạy trước
+  invalidateAuthState()
   assertSafeTestDatabase(process.env.DATABASE_URL)
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables

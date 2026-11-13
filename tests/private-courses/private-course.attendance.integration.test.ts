@@ -88,9 +88,44 @@ describe.skipIf(!hasTestDatabase)('FR-36 private-course attendance integration',
     expect(duplicateAttempts.some((response) => response.status === 200)).toBe(true)
     expect(duplicateAttempts.every((response) => [200, 409].includes(response.status))).toBe(true)
     expect(await prisma.privateCourseAttendance.count({ where: { scheduleId: scenario.schedule.id } })).toBe(1)
+    // Chưa trừ buổi cho tới khi hội viên xác nhận
+    expect(await prisma.privateCourseEnrollment.findUniqueOrThrow({
+      where: { id: scenario.enrollment.id },
+    })).toMatchObject({ status: 'ACTIVE', remainingSessions: 1 })
+    const attendance = await prisma.privateCourseAttendance.findFirstOrThrow({ where: { scheduleId: scenario.schedule.id } })
+    expect(attendance.status).toBe('PENDING_CONFIRMATION')
+
+    const confirmations = await Promise.all([
+      request(app).post(`/api/private-courses/attendances/${attendance.id}/confirm`).set('Authorization', scenario.member.auth),
+      request(app).post(`/api/private-courses/attendances/${attendance.id}/confirm`).set('Authorization', scenario.member.auth),
+    ])
+    expect(confirmations.map((response) => response.status).sort()).toEqual([200, 409])
     expect(await prisma.privateCourseEnrollment.findUniqueOrThrow({
       where: { id: scenario.enrollment.id },
     })).toMatchObject({ status: 'COMPLETED', remainingSessions: 0 })
+  })
+
+  it('hội viên khiếu nại thì không trừ buổi; Manager quyết định; quá 48 giờ không phản hồi thì tự xác nhận', async () => {
+    const scenario = await createAttendanceScenario(2)
+    const url = `/api/private-courses/enrollments/${scenario.enrollment.id}/schedules/${scenario.schedule.id}/attendance`
+    expect((await request(app).post(url).set('Authorization', scenario.coach.auth).send({ sessionDate: scenario.sessionDate })).status).toBe(200)
+    const attendance = await prisma.privateCourseAttendance.findFirstOrThrow({ where: { scheduleId: scenario.schedule.id } })
+
+    const outsider = await createMember()
+    expect((await request(app).post(`/api/private-courses/attendances/${attendance.id}/confirm`).set('Authorization', outsider.auth)).status).toBe(404)
+
+    const disputed = await request(app).post(`/api/private-courses/attendances/${attendance.id}/dispute`).set('Authorization', scenario.member.auth).send({ reason: 'Tôi không tham gia buổi này' })
+    expect(disputed.body.status).toBe('DISPUTED')
+    const rejected = await request(app).post(`/api/private-courses/attendances/${attendance.id}/resolve`).set('Authorization', scenario.manager.auth).send({ decision: 'REJECT', note: 'Coach xác nhận ghi nhầm ngày' })
+    expect(rejected.body.status).toBe('REJECTED')
+    expect((await prisma.privateCourseEnrollment.findUniqueOrThrow({ where: { id: scenario.enrollment.id } })).remainingSessions).toBe(2)
+
+    const previous = new Date(`${scenario.sessionDate}T00:00:00.000Z`)
+    previous.setUTCDate(previous.getUTCDate() - 7)
+    expect((await request(app).post(url).set('Authorization', scenario.coach.auth).send({ sessionDate: previous.toISOString().slice(0, 10) })).status).toBe(200)
+    const { autoConfirmOverdue } = await import('../../src/modules/private-courses/private-attendance.service.js')
+    await autoConfirmOverdue(new Date(Date.now() + 49 * 60 * 60 * 1000))
+    expect((await prisma.privateCourseEnrollment.findUniqueOrThrow({ where: { id: scenario.enrollment.id } })).remainingSessions).toBe(1)
   })
 
   it('does not record attendance or decrement sessions for an unpaid enrollment', async () => {
@@ -141,7 +176,7 @@ describe.skipIf(!hasTestDatabase)('FR-36 private-course attendance integration',
     })).toBe(1)
     expect(await prisma.privateCourseEnrollment.findUniqueOrThrow({
       where: { id: scenario.enrollment.id },
-    })).toMatchObject({ status: 'COMPLETED', remainingSessions: 0 })
+    })).toMatchObject({ status: 'ACTIVE', remainingSessions: 1 })
   })
 
   it('migration enforces unique occurrences and valid start/end times', async () => {

@@ -1,3 +1,4 @@
+import { assertActiveSession } from '../lib/auth-state.js'
 import type { Request, RequestHandler } from 'express'
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
@@ -29,7 +30,7 @@ function unauthenticated() {
   return new HttpError(401, 'Bạn cần đăng nhập để tiếp tục', 'UNAUTHENTICATED')
 }
 
-export const authenticate: RequestHandler = (request, _response, next) => {
+export const authenticate: RequestHandler = async (request, _response, next) => {
   const [scheme, token] = request.headers.authorization?.split(' ') ?? []
   if (scheme !== 'Bearer' || !token) throw unauthenticated()
 
@@ -47,6 +48,8 @@ export const authenticate: RequestHandler = (request, _response, next) => {
   if (!Number.isInteger(userId) || typeof payload.role !== 'string') {
     throw unauthenticated()
   }
+
+  await assertActiveSession(userId, payload.role)
 
   request.user = { id: userId, role: payload.role }
   next()

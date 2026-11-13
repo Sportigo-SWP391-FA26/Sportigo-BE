@@ -135,7 +135,7 @@ export async function findAssessableSessions(coachId: number, memberId: number) 
     }),
     prisma.privateCourseAttendance.findMany({
       where: {
-        completedAt: { lte: now }, schedule: { enrollment: { memberId, coachId } }, assessments: { none: { memberId } },
+        completedAt: { lte: now }, markedById: coachId, schedule: { enrollment: { memberId } }, assessments: { none: { memberId } },
       },
       orderBy: [{ sessionDate: 'desc' }, { startsAt: 'desc' }],
       select: {

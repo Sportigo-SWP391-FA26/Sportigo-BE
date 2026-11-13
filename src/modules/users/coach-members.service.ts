@@ -5,6 +5,7 @@ import type { ListCoachMembersQuery } from './coach-members.schema.js'
 import { assignedEnrollment, assignedRegistration } from './member-profile.repository.js'
 import { KeyedReadCache } from '../../lib/read-cache.js'
 import { prisma } from '../../lib/prisma.js'
+import { taughtByCoachWhere } from '../../lib/session-coach.js' // note: FR-66
 
 const toDateOnly = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null)
 
@@ -88,7 +89,9 @@ export async function listMyMembers(actor: AuthUser, query: ListCoachMembersQuer
 export async function listMySessions(actor: AuthUser, range: { from: Date; to: Date }) {
   const sessions = await prisma.classSession.findMany({
     where: {
-      groupClass: { coachId: actor.id, status: { notIn: ['DRAFT', 'CANCELLED'] } },
+      // note: FR-66 gồm cả buổi coach được giao dạy thay, bỏ buổi đã giao cho người khác
+      ...taughtByCoachWhere(actor.id),
+      groupClass: { status: { notIn: ['DRAFT', 'CANCELLED'] } },
       startsAt: { gte: range.from, lte: range.to },
     },
     orderBy: { startsAt: 'asc' },
@@ -99,6 +102,7 @@ export async function listMySessions(actor: AuthUser, range: { from: Date; to: D
       status: true,
       room: { select: { code: true, name: true } },
       _count: { select: { attendances: true } },
+      replacedCoachId: true, // note: FR-66 có giá trị = buổi này coach đang dạy thay
       groupClass: {
         select: {
           id: true,
@@ -111,8 +115,9 @@ export async function listMySessions(actor: AuthUser, range: { from: Date; to: D
   })
 
   const now = new Date()
-  return sessions.map(({ groupClass, _count, ...session }) => ({
+  return sessions.map(({ groupClass, _count, replacedCoachId, ...session }) => ({
     ...session,
+    isSubstitute: replacedCoachId !== null, // note: FR-66 FE hiện nhãn "Dạy thay"
     class: { id: groupClass.id, name: groupClass.name, sport: groupClass.sport },
     confirmedCount: groupClass._count.registrations,
     markedCount: _count.attendances,

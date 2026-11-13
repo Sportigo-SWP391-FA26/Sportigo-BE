@@ -1,3 +1,5 @@
+import { isAttendanceLocked } from '../training/attendance.service.js';
+import { BR_MESSAGES } from '../training/training.common.js';
 import { AttendanceStatus, RegistrationStatus } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
 import { prisma } from '../../lib/prisma.js';
@@ -16,10 +18,15 @@ export class AttendanceService {
     }
     const groupClass = await prisma.groupClass.findUnique({
       where: { id: session.classId },
-      select: { coachId: true },
+      select: { coachId: true, status: true },
     });
-    if (groupClass?.coachId !== data.markedById) {
+    // note: FR-66 người dạy thực tế (kể cả dạy thay) mới được điểm danh
+    if (!groupClass || (session.coachId ?? groupClass.coachId) !== data.markedById) {
       throw new HttpError(403, 'Bạn không được phân công phụ trách buổi học này.', 'FORBIDDEN');
+    }
+    // BR-43: cùng khóa thời gian với API điểm danh chính (từ lúc bắt đầu đến hết hạn sửa)
+    if (isAttendanceLocked({ ...session, groupClass: { status: groupClass.status } })) {
+      throw new HttpError(409, BR_MESSAGES.BR43, 'ATTENDANCE_LOCKED');
     }
 
     // 2. Kiểm tra hội viên đã đăng ký lớp học này chưa (phải CONFIRMED)
@@ -79,7 +86,7 @@ export class AttendanceService {
       where: { id: session.classId },
       select: { coachId: true },
     });
-    if (role === 'COACH' && groupClass?.coachId !== requesterId) {
+    if (role === 'COACH' && (session.coachId ?? groupClass?.coachId) !== requesterId) { // note: FR-66
       throw new HttpError(403, 'Bạn không được phân công phụ trách buổi học này.', 'FORBIDDEN');
     }
     return await prisma.sessionAttendance.findMany({

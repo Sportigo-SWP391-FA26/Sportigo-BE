@@ -114,7 +114,7 @@ async function assertCoachOwnsContext(
     if (
       !attendance ||
       enrollment?.memberId !== input.memberId ||
-      enrollment.coachId !== coachId ||
+      attendance.markedById !== coachId ||
       attendance.endsAt > new Date()
     ) {
       throw new HttpError(400, 'Buổi học 1-1 chưa hoàn thành hoặc không thuộc khóa học này.', 'SESSION_NOT_ASSESSABLE')

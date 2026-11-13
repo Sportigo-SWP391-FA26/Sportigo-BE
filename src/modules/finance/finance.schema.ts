@@ -24,6 +24,7 @@ export const promotionSchema = z.object({
   startAt: z.coerce.date(), endAt: z.coerce.date(), totalUsageLimit: z.coerce.number().int().positive().nullable().optional(),
   perMemberLimit: z.coerce.number().int().positive().nullable().optional(), isPublic: z.boolean().default(false), status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE', 'EXPIRED']).default('DRAFT'),
 }).refine((value) => value.endAt > value.startAt, { message: 'Thời gian khuyến mãi không hợp lệ', path: ['endAt'] })
+  .refine((value) => value.discountType !== 'PERCENTAGE' || value.discountValue <= 100, { message: 'Mức giảm phần trăm tối đa 100%', path: ['discountValue'] })
 
 export const promotionUpdateSchema = z.object({
   code: z.string().trim().min(3).max(50).transform((value) => value.toUpperCase()).optional(),
@@ -40,6 +41,7 @@ export const promotionUpdateSchema = z.object({
   isPublic: z.boolean().optional(),
   status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE', 'EXPIRED']).optional(),
 }).refine((value) => !value.startAt || !value.endAt || value.endAt > value.startAt, { message: 'Thời gian khuyến mãi không hợp lệ', path: ['endAt'] })
+  .refine((value) => value.discountType !== 'PERCENTAGE' || value.discountValue === undefined || value.discountValue <= 100, { message: 'Mức giảm phần trăm tối đa 100%', path: ['discountValue'] })
 
 export const orderItemSchema = z.object({
   itemType: z.enum(['GROUP_CLASS', 'PRIVATE_COURSE']), itemName: z.string().trim().min(2).max(200),

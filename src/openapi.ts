@@ -10,6 +10,7 @@ import { contentPaths } from './modules/content/content.openapi.js'
 import { uploadPaths } from './modules/uploads/upload.openapi.js'
 import { coachAvailabilityPaths } from './modules/coach-availability/coach-availability.openapi.js'
 import { membershipPaths } from './modules/memberships/membership.openapi.js'
+import { workforcePaths } from './modules/workforce/workforce.openapi.js' // note: FR-66/67
 
 export const openApiDocument = {
   openapi: '3.0.3',
@@ -44,6 +45,8 @@ export const openApiDocument = {
     { name: 'Uploads', description: 'Tải ảnh lên Cloudinary' },
     { name: 'Coach Availability', description: 'Coach đăng ký thời gian có thể nhận lớp' },
     { name: 'Coach Availability Review', description: 'Center Manager duyệt availability và yêu cầu đổi ca' },
+    { name: 'Session Coach', description: 'Coach dạy thực tế từng buổi: dạy thay, coach vắng (FR-66)' },
+    { name: 'Staff Shifts', description: 'Ca làm và chấm công lễ tân (FR-67)' },
   ],
   components: {
     securitySchemes: {
@@ -63,5 +66,6 @@ export const openApiDocument = {
     ...uploadPaths,
     ...coachAvailabilityPaths,
     ...membershipPaths,
+    ...workforcePaths,
   },
 } as const

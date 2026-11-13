@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { centerClock, centerDateTime, centerDayOfWeek, clockText } from '../../lib/center-time.js'
 import { HttpError } from '../../lib/http-error.js'
 import { prisma } from '../../lib/prisma.js'
 import { audit } from '../../lib/audit.js'
@@ -70,10 +71,8 @@ function dateAtShift(date: Date, shiftCode: string) {
   if (!shift) throw new HttpError(422, 'Ca làm việc không hợp lệ', 'INVALID_SHIFT')
   const [startHour = 0, startMinute = 0] = shift.startTime.split(':').map(Number)
   const [endHour = 0, endMinute = 0] = shift.endTime.split(':').map(Number)
-  const start = new Date(date)
-  start.setUTCHours(startHour, startMinute, 0, 0)
-  const end = new Date(date)
-  end.setUTCHours(endHour, endMinute, 0, 0)
+  const start = centerDateTime(date, { hours: startHour, minutes: startMinute })
+  const end = centerDateTime(date, { hours: endHour, minutes: endMinute })
   return { start, end, shift }
 }
 
@@ -105,8 +104,9 @@ async function assignedSlots(coachId: number, month: Date) {
   ])
   const result = new Set<string>()
   for (const session of groupSessions) {
-    const shift = shiftForTime(session.startsAt, session.endsAt)
-    if (shift) result.add(slotKey(session.startsAt.getUTCDay(), shift.code))
+    // Buổi lớp nhóm là thời điểm tuyệt đối: quy về giờ Việt Nam trước khi so với ca
+    const shift = AVAILABILITY_SHIFTS.find((item) => item.startTime === clockText(centerClock(session.startsAt)) && item.endTime === clockText(centerClock(session.endsAt)))
+    if (shift) result.add(slotKey(centerDayOfWeek(session.startsAt), shift.code))
   }
   for (const schedule of privateSchedules) {
     const shift = shiftForTime(schedule.startTime, schedule.endTime)
@@ -303,7 +303,7 @@ async function assertGroupMoveFree(tx: Db, session: { id: number; roomId: number
   const memberIds = session.groupClass.registrations.map((registration) => registration.memberId)
   const [groupConflict, privateConflict] = await Promise.all([
     tx.classSession.findFirst({ where: { id: { not: session.id }, status: 'SCHEDULED', startsAt: { lt: end }, endsAt: { gt: start }, OR: [{ roomId: session.roomId }, { groupClass: { coachId: session.groupClass.coachId } }, { groupClass: { registrations: { some: { memberId: { in: memberIds }, status: 'CONFIRMED' } } } }] } }),
-    tx.privateCourseSchedule.findFirst({ where: { status: 'ACTIVE', dayOfWeek: start.getUTCDay(), effectiveFrom: { lte: start }, effectiveTo: { gte: start }, OR: [{ roomId: session.roomId }, { enrollment: { coachId: session.groupClass.coachId } }, { enrollment: { memberId: { in: memberIds } } }], startTime: { lt: timeValue(timeText(end)) }, endTime: { gt: timeValue(timeText(start)) } } }),
+    tx.privateCourseSchedule.findFirst({ where: { status: 'ACTIVE', dayOfWeek: centerDayOfWeek(start), effectiveFrom: { lte: start }, effectiveTo: { gte: start }, OR: [{ roomId: session.roomId }, { enrollment: { coachId: session.groupClass.coachId } }, { enrollment: { memberId: { in: memberIds } } }], startTime: { lt: timeValue(clockText(centerClock(end))) }, endTime: { gt: timeValue(clockText(centerClock(start))) } } }),
   ])
   const room = await tx.room.findUnique({ where: { id: session.roomId }, select: { status: true } })
   if (!room || room.status !== 'AVAILABLE' || groupConflict || privateConflict) throw new HttpError(409, 'Coach, Member hoặc phòng cũ bị trùng tại ca mới', 'CHANGE_SCHEDULE_CONFLICT')
@@ -312,7 +312,7 @@ async function assertGroupMoveFree(tx: Db, session: { id: number; roomId: number
 async function assertPrivateMoveFree(tx: Db, schedule: { id: number; roomId: number; enrollment: { coachId: number; memberId: number } }, start: Date, end: Date) {
   const [groupConflict, privateConflict] = await Promise.all([
     tx.classSession.findFirst({ where: { status: 'SCHEDULED', startsAt: { lt: end }, endsAt: { gt: start }, OR: [{ roomId: schedule.roomId }, { groupClass: { coachId: schedule.enrollment.coachId } }, { groupClass: { registrations: { some: { memberId: schedule.enrollment.memberId, status: 'CONFIRMED' } } } }] } }),
-    tx.privateCourseSchedule.findFirst({ where: { id: { not: schedule.id }, status: 'ACTIVE', dayOfWeek: start.getUTCDay(), effectiveFrom: { lte: start }, effectiveTo: { gte: start }, OR: [{ roomId: schedule.roomId }, { enrollment: { coachId: schedule.enrollment.coachId } }, { enrollment: { memberId: schedule.enrollment.memberId } }], startTime: { lt: timeValue(timeText(end)) }, endTime: { gt: timeValue(timeText(start)) } } }),
+    tx.privateCourseSchedule.findFirst({ where: { id: { not: schedule.id }, status: 'ACTIVE', dayOfWeek: centerDayOfWeek(start), effectiveFrom: { lte: start }, effectiveTo: { gte: start }, OR: [{ roomId: schedule.roomId }, { enrollment: { coachId: schedule.enrollment.coachId } }, { enrollment: { memberId: schedule.enrollment.memberId } }], startTime: { lt: timeValue(clockText(centerClock(end))) }, endTime: { gt: timeValue(clockText(centerClock(start))) } } }),
   ])
   const room = await tx.room.findUnique({ where: { id: schedule.roomId }, select: { status: true } })
   if (!room || room.status !== 'AVAILABLE' || groupConflict || privateConflict) throw new HttpError(409, 'Coach, Member hoặc phòng cũ bị trùng tại ca mới', 'CHANGE_SCHEDULE_CONFLICT')
@@ -341,7 +341,7 @@ export async function reviewChangeRequest(id: number, managerId: number, input: 
   const newShift = shiftByCode.get(request.newShiftCode)!
   const result = await prisma.$transaction(async (tx) => {
     const sessions = await tx.classSession.findMany({ where: { status: 'SCHEDULED', startsAt: { gte: cutoff, lt: endExclusive }, groupClass: { coachId: request.coachId } }, include: { groupClass: { include: { registrations: { where: { status: 'CONFIRMED' }, select: { memberId: true } } } } } })
-    const matching = sessions.filter((session) => session.startsAt.getUTCDay() === request.oldDayOfWeek && timeText(session.startsAt) === oldShift.startTime && timeText(session.endsAt) === oldShift.endTime)
+    const matching = sessions.filter((session) => centerDayOfWeek(session.startsAt) === request.oldDayOfWeek && clockText(centerClock(session.startsAt)) === oldShift.startTime && clockText(centerClock(session.endsAt)) === oldShift.endTime)
     const movedMemberIds = new Set<number>()
     for (const session of matching) {
       const delta = request.newDayOfWeek - request.oldDayOfWeek

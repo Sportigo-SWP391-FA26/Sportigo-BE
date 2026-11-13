@@ -197,10 +197,11 @@ describe('FR-17–FR-20 Class session scheduling', () => {
 
     expect(result).toHaveLength(4)
     expect(result.map((session) => session.startsAt.toISOString())).toEqual([
-      '2026-11-01T10:00:00.000Z',
-      '2026-11-08T10:00:00.000Z',
-      '2026-11-15T10:00:00.000Z',
-      '2026-11-22T10:00:00.000Z',
+      // 10:00 giờ Việt Nam
+      '2026-11-01T03:00:00.000Z',
+      '2026-11-08T03:00:00.000Z',
+      '2026-11-15T03:00:00.000Z',
+      '2026-11-22T03:00:00.000Z',
     ])
     expect(prisma.classSession.create).toHaveBeenCalledTimes(4)
     expect(prisma.$transaction).toHaveBeenCalledOnce()

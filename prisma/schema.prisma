@@ -54,6 +54,15 @@ model User {
   role                            Role                             @relation(fields: [roleId], references: [id])
   walletTransactionsCreated       WalletTransaction[]              @relation("WalletTransactionCreator")
   gymCheckInsRecorded             GymCheckIn[]
+  resolvedPrivateAttendances      PrivateCourseAttendance[]        @relation("PrivateAttendanceResolver")
+  // note: FR-66/67 quan hệ ngược cho dạy thay, ca làm và chấm công
+  sessionCoachChanges             ClassSession[]                   @relation("SessionCoachChangedBy")
+  staffShifts                     StaffShift[]                     @relation("StaffShiftStaff")
+  createdStaffShifts              StaffShift[]                     @relation("StaffShiftCreator")
+  timeClockAdjustments            TimeClockAdjustment[]            @relation("TimeClockAdjustmentRequester")
+  reviewedTimeClockAdjustments    TimeClockAdjustment[]            @relation("TimeClockAdjustmentReviewer")
+  reviewedCoachAbsences           CoachAbsenceRequest[]            @relation("CoachAbsenceReviewer")
+  reviewedPrivateCoachAbsences    PrivateCoachAbsenceRequest[]     @relation("PrivateAbsenceReviewer")
 
   @@index([roleId, status])
   @@index([deletedAt])
@@ -151,6 +160,12 @@ model Coach {
   createdWorkoutPlans            WorkoutPlan[]
   markedPrivateCourseAttendances PrivateCourseAttendance[]
   completedWorkoutPlanItems      WorkoutPlanItemCompletion[]
+  // note: FR-66 các buổi coach dạy thực tế / bị thay
+  taughtSessions                 ClassSession[]                   @relation("SessionActualCoach")
+  replacedSessions               ClassSession[]                   @relation("SessionReplacedCoach")
+  absenceRequests                CoachAbsenceRequest[]
+  privateAbsenceRequests         PrivateCoachAbsenceRequest[]     @relation("PrivateAbsenceCoach")
+  privateMakeupExceptions        PrivateCourseScheduleException[] @relation("PrivateMakeupCoach")
 }
 
 // Hồ sơ nhân sự lễ tân, giữ mã nhân sự giống coachCode của Coach (FR-07)
@@ -325,23 +340,129 @@ model Room {
 }
 
 model ClassSession {
-  id          Int                  @id @default(autoincrement())
-  classId     Int
-  roomId      Int
-  startsAt    DateTime
-  endsAt      DateTime
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  note        String?
-  status      SessionStatus        @default(SCHEDULED)
-  groupClass  GroupClass           @relation(fields: [classId], references: [id], onDelete: Cascade)
-  room        Room                 @relation(fields: [roomId], references: [id])
-  changes     ScheduleChange[]
-  attendances SessionAttendance[]
-  assessments ProgressAssessment[]
+  id                Int                  @id @default(autoincrement())
+  classId           Int
+  roomId            Int
+  startsAt          DateTime
+  endsAt            DateTime
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  note              String?
+  status            SessionStatus        @default(SCHEDULED)
+  // note: FR-66 coach dạy thực tế của buổi. NULL = theo coach của lớp; có giá trị = đã chốt hoặc dạy thay
+  coachId           Int?
+  // note: FR-66 coach chính bị thay (chỉ có khi dạy thay), lý do và người ghi nhận
+  replacedCoachId   Int?
+  coachChangeReason String?              @db.VarChar(300)
+  coachChangedById  Int?
+  coachChangedAt    DateTime?
+  // note: FR-66 coach chính vắng (lỗi của coach → không trả tiền buổi, trừ KPI ở giai đoạn sau)
+  coachAbsent       Boolean              @default(false)
+  groupClass        GroupClass           @relation(fields: [classId], references: [id], onDelete: Cascade)
+  room              Room                 @relation(fields: [roomId], references: [id])
+  coach             Coach?               @relation("SessionActualCoach", fields: [coachId], references: [userId])
+  replacedCoach     Coach?               @relation("SessionReplacedCoach", fields: [replacedCoachId], references: [userId])
+  coachChangedBy    User?                @relation("SessionCoachChangedBy", fields: [coachChangedById], references: [id])
+  changes           ScheduleChange[]
+  attendances       SessionAttendance[]
+  assessments       ProgressAssessment[]
+  absenceRequest    CoachAbsenceRequest? @relation("AbsentSession")
+  makeupFor         CoachAbsenceRequest? @relation("MakeupSession")
 
   @@index([classId, startsAt])
   @@index([roomId, startsAt, endsAt])
+  @@index([coachId, startsAt])
+}
+
+// FR-67: ca làm của lễ tân do Manager xếp, kèm giờ vào/ra thực tế (chấm công) trên chính ca đó
+model StaffShift {
+  id           Int                   @id @default(autoincrement())
+  staffId      Int
+  startsAt     DateTime
+  endsAt       DateTime
+  status       StaffShiftStatus      @default(SCHEDULED)
+  note         String?               @db.VarChar(300)
+  cancelReason String?               @db.VarChar(300)
+  clockInAt    DateTime?
+  clockOutAt   DateTime?
+  createdById  Int
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  staff        User                  @relation("StaffShiftStaff", fields: [staffId], references: [id])
+  createdBy    User                  @relation("StaffShiftCreator", fields: [createdById], references: [id])
+  adjustments  TimeClockAdjustment[]
+
+  @@index([staffId, startsAt])
+  @@index([startsAt])
+}
+
+model CoachAbsenceRequest {
+  id              Int                @id @default(autoincrement())
+  sessionId       Int                @unique
+  coachId         Int
+  reason          String             @db.VarChar(300)
+  status          CoachAbsenceStatus @default(PENDING)
+  requestedAt     DateTime           @default(now())
+  reviewedById    Int?
+  reviewedAt      DateTime?
+  reviewReason    String?            @db.VarChar(300)
+  makeupSessionId Int?               @unique
+  makeupCreatedAt DateTime?
+  session         ClassSession       @relation("AbsentSession", fields: [sessionId], references: [id])
+  makeupSession   ClassSession?      @relation("MakeupSession", fields: [makeupSessionId], references: [id])
+  coach           Coach              @relation(fields: [coachId], references: [userId])
+  reviewedBy      User?              @relation("CoachAbsenceReviewer", fields: [reviewedById], references: [id])
+
+  @@index([status, requestedAt])
+}
+
+model PrivateCoachAbsenceRequest {
+  id               Int                   @id @default(autoincrement())
+  scheduleId       Int
+  sessionDate      DateTime              @db.Date
+  coachId          Int
+  reason           String                @db.VarChar(300)
+  status           CoachAbsenceStatus    @default(PENDING)
+  requestedAt      DateTime              @default(now())
+  originalStartsAt DateTime
+  originalEndsAt   DateTime
+  reviewedById     Int?
+  reviewedAt       DateTime?
+  reviewReason     String?               @db.VarChar(300)
+  makeupStartsAt   DateTime?
+  makeupEndsAt     DateTime?
+  makeupRoomId     Int?
+  makeupCoachId    Int?
+  makeupCreatedAt  DateTime?
+  schedule         PrivateCourseSchedule @relation(fields: [scheduleId], references: [id])
+  coach            Coach                 @relation("PrivateAbsenceCoach", fields: [coachId], references: [userId])
+  reviewedBy       User?                 @relation("PrivateAbsenceReviewer", fields: [reviewedById], references: [id])
+
+  @@unique([scheduleId, sessionDate])
+  @@index([status, requestedAt])
+}
+
+// FR-67: yêu cầu sửa giờ vào/ra (quên chấm công, chấm sai) → Manager duyệt mới ghi vào ca
+model TimeClockAdjustment {
+  id            Int                       @id @default(autoincrement())
+  shiftId       Int
+  requestedById Int
+  clockInAt     DateTime?
+  clockOutAt    DateTime?
+  oldClockInAt  DateTime?
+  oldClockOutAt DateTime?
+  reason        String                    @db.VarChar(300)
+  status        TimeClockAdjustmentStatus @default(PENDING)
+  reviewedById  Int?
+  reviewedAt    DateTime?
+  reviewNote    String?                   @db.VarChar(300)
+  createdAt     DateTime                  @default(now())
+  shift         StaffShift                @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  requestedBy   User                      @relation("TimeClockAdjustmentRequester", fields: [requestedById], references: [id])
+  reviewedBy    User?                     @relation("TimeClockAdjustmentReviewer", fields: [reviewedById], references: [id])
+
+  @@index([status, createdAt])
+  @@index([shiftId, status])
 }
 
 model ScheduleChange {
@@ -562,19 +683,20 @@ model PrivateCourseEnrollment {
 }
 
 model PrivateCourseSchedule {
-  id            Int                              @id @default(autoincrement())
-  enrollmentId  Int
-  roomId        Int
-  dayOfWeek     Int
-  startTime     DateTime                         @db.Time(6)
-  endTime       DateTime                         @db.Time(6)
-  effectiveFrom DateTime                         @db.Date
-  effectiveTo   DateTime                         @db.Date
-  status        ScheduleStatus                   @default(ACTIVE)
-  enrollment    PrivateCourseEnrollment          @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  room          Room                             @relation(fields: [roomId], references: [id])
-  attendances   PrivateCourseAttendance[]
-  exceptions    PrivateCourseScheduleException[]
+  id              Int                              @id @default(autoincrement())
+  enrollmentId    Int
+  roomId          Int
+  dayOfWeek       Int
+  startTime       DateTime                         @db.Time(6)
+  endTime         DateTime                         @db.Time(6)
+  effectiveFrom   DateTime                         @db.Date
+  effectiveTo     DateTime                         @db.Date
+  status          ScheduleStatus                   @default(ACTIVE)
+  enrollment      PrivateCourseEnrollment          @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  room            Room                             @relation(fields: [roomId], references: [id])
+  attendances     PrivateCourseAttendance[]
+  exceptions      PrivateCourseScheduleException[]
+  absenceRequests PrivateCoachAbsenceRequest[]
 
   @@unique([enrollmentId, dayOfWeek, startTime])
   @@index([roomId, dayOfWeek, startTime, endTime])
@@ -588,10 +710,12 @@ model PrivateCourseScheduleException {
   rescheduledStartsAt DateTime?
   rescheduledEndsAt   DateTime?
   newRoomId           Int?
+  newCoachId          Int?
   reason              String                        @db.VarChar(500)
   changedAt           DateTime                      @default(now())
   schedule            PrivateCourseSchedule         @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   newRoom             Room?                         @relation(fields: [newRoomId], references: [id])
+  newCoach            Coach?                        @relation("PrivateMakeupCoach", fields: [newCoachId], references: [userId])
 
   @@unique([scheduleId, sessionDate])
   @@index([sessionDate, action])
@@ -605,13 +729,29 @@ model PrivateCourseAttendance {
   endsAt             DateTime
   completedAt        DateTime                    @default(now())
   markedById         Int
+  // Buổi Coach ghi nhận chỉ trừ vào khóa học sau khi hội viên xác nhận (hoặc tự xác nhận sau 48 giờ)
+  status             PrivateAttendanceStatus     @default(PENDING_CONFIRMATION)
+  confirmedAt        DateTime?
+  disputeReason      String?                     @db.VarChar(500)
+  resolvedById       Int?
+  resolvedAt         DateTime?
+  resolutionNote     String?                     @db.VarChar(500)
   schedule           PrivateCourseSchedule       @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   markedBy           Coach                       @relation(fields: [markedById], references: [userId])
+  resolvedBy         User?                       @relation("PrivateAttendanceResolver", fields: [resolvedById], references: [id])
   assessments        ProgressAssessment[]
   completedPlanItems WorkoutPlanItemCompletion[]
 
   @@unique([scheduleId, sessionDate])
   @@index([markedById, completedAt])
+  @@index([status, completedAt])
+}
+
+enum PrivateAttendanceStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  DISPUTED
+  REJECTED
 }
 
 // Gói sử dụng phòng tập theo tháng, không kèm Coach
@@ -1103,10 +1243,29 @@ enum ClassStatus {
   COMPLETED
 }
 
+// note: FR-67 trạng thái ca làm (giờ vào/ra nằm ở cột clockInAt/clockOutAt)
+enum StaffShiftStatus {
+  SCHEDULED
+  CANCELLED
+}
+
+// note: FR-67 trạng thái yêu cầu sửa chấm công
+enum TimeClockAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum SessionStatus {
   SCHEDULED
   COMPLETED
   CANCELLED
+}
+
+enum CoachAbsenceStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum RoomStatus {
