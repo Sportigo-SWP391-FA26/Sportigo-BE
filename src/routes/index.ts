@@ -10,6 +10,8 @@ import { membersRouter } from '../modules/users/members.routes.js'
 import { coachMembersRouter, coachSessionsRouter } from '../modules/users/coach-members.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
 import { supportRouter } from '../modules/support/support.routes.js'
+import { sessionCoachRouter } from '../modules/workforce/session-coach.routes.js'
+import { staffShiftRouter } from '../modules/workforce/staff-shift.routes.js'
 
 import sportRoutes from '../modules/sports/sport.routes.js'
 import roomRoutes from '../modules/rooms/room.routes.js'
@@ -59,6 +61,10 @@ apiRouter.use('/coaches/me', coachAssessmentRouter)
 apiRouter.use('/coaches/me', coachAvailabilitySelfRouter)
 apiRouter.use('/coach-availability-submissions', availabilitySubmissionRouter)
 apiRouter.use('/coach-availability-change-requests', availabilityChangeRequestRouter)
+
+// note: FR-66 coach dạy thực tế từng buổi, FR-67 ca làm và chấm công lễ tân
+apiRouter.use('/session-coaches', sessionCoachRouter)
+apiRouter.use('/staff-shifts', staffShiftRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)

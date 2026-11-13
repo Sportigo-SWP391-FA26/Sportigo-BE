@@ -22,6 +22,7 @@ export function findSessionWithClass(sessionId: number) {
       startsAt: true,
       endsAt: true,
       status: true,
+      coachId: true, // note: FR-66 coach dạy thực tế (dạy thay)
       groupClass: {
         select: { id: true, name: true, coachId: true, status: true },
       },

@@ -2,6 +2,7 @@ import { AvailabilityStatus } from '@prisma/client';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { prisma } from '../../lib/prisma.js';
+import { taughtByCoachWhere } from '../../lib/session-coach.js'; // note: FR-66
 
 type ScheduleExceptionWithRoom = {
   sessionDate: Date;
@@ -306,7 +307,8 @@ export class CoachService {
     const [classSessions, schedules] = await Promise.all([
       prisma.classSession.findMany({
         where: {
-          groupClass: { coachId },
+          // note: FR-66 lịch coach gồm cả buổi dạy thay, bỏ buổi đã giao cho người khác dạy thay
+          ...taughtByCoachWhere(coachId),
           status: { in: ['SCHEDULED', 'CANCELLED'] },
           startsAt: { lt: endExclusive },
           endsAt: { gt: from },
