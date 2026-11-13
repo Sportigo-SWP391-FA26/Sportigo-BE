@@ -17,17 +17,21 @@ export const listPublicPlans = () => repository.findPublicPlans()
 export const listManagedPlans = () => repository.findAllPlans()
 
 export async function createPlan(input: CreatePlanInput, actorId: number) {
-  const plan = await repository.createPlan(input)
-  await audit(prisma, { actorId, action: 'MEMBERSHIP_PLAN_CREATED', entityType: 'MembershipPlan', entityId: plan.id, newData: plan })
-  return plan
+  return prisma.$transaction(async (tx) => {
+    const plan = await tx.membershipPlan.create({ data: input })
+    await audit(tx, { actorId, action: 'MEMBERSHIP_PLAN_CREATED', entityType: 'MembershipPlan', entityId: plan.id, newData: plan })
+    return plan
+  })
 }
 
 export async function updatePlan(id: number, input: UpdatePlanInput, actorId: number) {
   const current = await repository.findPlan(id)
   if (!current) throw planNotFound()
-  const updated = await repository.updatePlan(id, input)
-  await audit(prisma, { actorId, action: 'MEMBERSHIP_PLAN_UPDATED', entityType: 'MembershipPlan', entityId: id, oldData: current, newData: updated })
-  return updated
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.membershipPlan.update({ where: { id }, data: input })
+    await audit(tx, { actorId, action: 'MEMBERSHIP_PLAN_UPDATED', entityType: 'MembershipPlan', entityId: id, oldData: current, newData: updated })
+    return updated
+  })
 }
 
 export async function deleteDraftPlan(id: number, actorId: number) {
@@ -36,8 +40,10 @@ export async function deleteDraftPlan(id: number, actorId: number) {
   if (plan.status !== 'DRAFT' || plan._count.subscriptions > 0) {
     throw new HttpError(409, 'Chỉ xóa được gói bản nháp chưa có người mua. Hãy ngừng bán để giữ lịch sử.', 'MEMBERSHIP_PLAN_DELETE_NOT_ALLOWED')
   }
-  await repository.deletePlan(id)
-  await audit(prisma, { actorId, action: 'MEMBERSHIP_PLAN_DELETED', entityType: 'MembershipPlan', entityId: id, oldData: plan })
+  await prisma.$transaction(async (tx) => {
+    await tx.membershipPlan.delete({ where: { id } })
+    await audit(tx, { actorId, action: 'MEMBERSHIP_PLAN_DELETED', entityType: 'MembershipPlan', entityId: id, oldData: plan })
+  })
 }
 
 export async function purchase(memberId: number, planId: number, now = new Date()) {

@@ -261,6 +261,18 @@ describe.skipIf(!hasTestDatabase)('FR-37–46, FR-57–60 Finance integration', 
       .post(`/api/payments/${payment.id}/refund-requests`)
       .set('Authorization', scenario.member!.auth)
       .send({ requestedAmount: 400_000, reason: 'Hủy lớp đúng chính sách hoàn tiền' })
+    // BR-40: không được duyệt thẳng từ REQUESTED
+    const skipped = await request(app)
+      .patch(`/api/refund-requests/${requested.body.id}/review`)
+      .set('Authorization', manager.auth)
+      .send({ decision: 'APPROVE', approvedAmount: 300_000, note: 'Duyệt khi chưa xét duyệt' })
+    expect(skipped.status).toBe(409)
+    expect(skipped.body.code).toBe('INVALID_REFUND_TRANSITION')
+    const reviewing = await request(app)
+      .patch(`/api/refund-requests/${requested.body.id}/review`)
+      .set('Authorization', manager.auth)
+      .send({ decision: 'REVIEW', note: 'Bắt đầu xét duyệt' })
+    expect(reviewing.body.status).toBe('UNDER_REVIEW')
     const approved = await request(app)
       .patch(`/api/refund-requests/${requested.body.id}/review`)
       .set('Authorization', manager.auth)
@@ -300,6 +312,7 @@ describe.skipIf(!hasTestDatabase)('FR-37–46, FR-57–60 Finance integration', 
     const payment = await prisma.payment.findFirstOrThrow({ where: { orderId: scenario.order.id } })
     await prisma.classRegistration.update({ where: { id: scenario.registration.id }, data: { status: 'CANCELLED' } })
     const refund = await request(app).post(`/api/payments/${payment.id}/refund-requests`).set('Authorization', scenario.member!.auth).send({ requestedAmount: 250_000, reason: 'Hủy dịch vụ đúng chính sách' })
+    await request(app).patch(`/api/refund-requests/${refund.body.id}/review`).set('Authorization', manager.auth).send({ decision: 'REVIEW', note: 'Bắt đầu xét duyệt' })
     await request(app).patch(`/api/refund-requests/${refund.body.id}/review`).set('Authorization', manager.auth).send({ decision: 'APPROVE', approvedAmount: 250_000, note: 'Đủ điều kiện' })
     await request(app).post(`/api/refund-requests/${refund.body.id}/complete`).set('Authorization', manager.auth).send()
 
@@ -343,6 +356,7 @@ describe.skipIf(!hasTestDatabase)('FR-37–46, FR-57–60 Finance integration', 
     const secondPayment = await prisma.payment.create({ data: { orderId: order.id, paymentMethodId: onlineMethod.id, reference: `VNP-${Date.now()}`, amount: 700_000, channel: 'ONLINE', status: 'SUCCESS', paidAt: new Date() } })
 
     const requested = await request(app).post(`/api/order-items/${order.items[0]!.id}/refund-requests`).set('Authorization', member.auth).send({ requestedAmount: 400_000, reason: 'Hủy riêng lớp đầu tiên đúng chính sách' })
+    await request(app).patch(`/api/refund-requests/${requested.body.id}/review`).set('Authorization', manager.auth).send({ decision: 'REVIEW', note: 'Bắt đầu xét duyệt' })
     await request(app).patch(`/api/refund-requests/${requested.body.id}/review`).set('Authorization', manager.auth).send({ decision: 'APPROVE', approvedAmount: 400_000, note: 'Đủ điều kiện hoàn theo dịch vụ' })
     const completed = await request(app).post(`/api/refund-requests/${requested.body.id}/complete`).set('Authorization', manager.auth)
 

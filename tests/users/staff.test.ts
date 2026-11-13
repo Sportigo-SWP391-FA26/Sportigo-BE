@@ -59,7 +59,7 @@ const newCoach = {
   displayName: 'Lê Lan',
   email: 'Coach@Sportigo.vn',
   phone: '0901234567',
-  password: 'matkhau123',
+  password: 'Matkhau123',
   hiredAt: '2026-10-01',
 }
 
@@ -103,7 +103,7 @@ describe('FR-07 Quản lý nhân sự', () => {
     expect(response.body.passwordHash).toBeUndefined()
     const data = prisma.user.create.mock.calls[0][0].data
     expect(data).toMatchObject({ email: 'coach@sportigo.vn', status: 'INACTIVE', role: { connect: { name: 'COACH' } } })
-    expect(data.passwordHash).not.toBe('matkhau123')
+    expect(data.passwordHash).not.toBe('Matkhau123')
     expect(prisma.coach.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: 7, coachCode: 'COA-000007' }),
     })

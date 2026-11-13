@@ -1,3 +1,4 @@
+import { strongPasswordSchema } from '../../lib/password.js'
 import { z } from 'zod'
 
 export const loginSchema = z.object({
@@ -12,7 +13,7 @@ export const registerSchema = z
     displayName: z.string().trim().min(2).max(80),
     phone: z.string().trim().regex(/^(0|\+84)[0-9]{9,10}$/),
     email: z.string().trim().toLowerCase().email(),
-    password: z.string().min(8).max(72),
+    password: strongPasswordSchema,
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -37,7 +38,7 @@ export const resetPasswordSchema = z
   .object({
     email: z.string().trim().toLowerCase().email(),
     code: z.string().trim().regex(/^\d{6}$/, 'Mã OTP phải gồm đúng 6 chữ số'),
-    password: z.string().min(8).max(72),
+    password: strongPasswordSchema,
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {

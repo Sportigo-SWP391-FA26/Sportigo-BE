@@ -51,6 +51,17 @@ export class GroupClassService {
     if (data.tuitionFee < 0) {
       throw new HttpError(400, 'Học phí không được nhỏ hơn 0.', 'INVALID_TUITION_FEE');
     }
+    // BR-09: mở đăng ký < đóng đăng ký ≤ ngày bắt đầu ≤ ngày kết thúc
+    const openAt = new Date(data.registrationOpenAt);
+    const closeAt = new Date(data.registrationCloseAt);
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+    if (
+      [openAt, closeAt, startDate, endDate].some((value) => !Number.isFinite(value.getTime())) ||
+      openAt >= closeAt || closeAt > startDate || startDate > endDate
+    ) {
+      throw new HttpError(400, 'Thời gian đăng ký và thời gian diễn ra lớp không hợp lệ.', 'INVALID_CLASS_DATE_RANGE');
+    }
 
     // Kiểm tra môn thể thao tồn tại và đang hoạt động
     const sport = await prisma.sport.findUnique({ where: { id: data.sportId } });

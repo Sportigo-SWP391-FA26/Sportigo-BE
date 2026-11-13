@@ -10,8 +10,9 @@ describe('FR-28 class cancellation cutoff', () => {
     expect(assertClassRegistrationCancellable(atHours(49), 'MEMBER', now, 48)).toBe(1)
   })
 
-  it('refunds half within 48 hours before the first session for Member and Receptionist', () => {
+  it('BR-22: dưới 48 giờ Member vẫn tự hủy được và nhận hoàn 50%', () => {
     expect(assertClassRegistrationCancellable(atHours(47.99), 'MEMBER', now, 48)).toBe(0.5)
+    expect(assertClassRegistrationCancellable(atHours(47.99), 'RECEPTIONIST', now, 48)).toBe(0.5)
     expect(assertClassRegistrationCancellable(atHours(1), 'RECEPTIONIST', now, 48)).toBe(0.5)
   })
 

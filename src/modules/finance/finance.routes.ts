@@ -12,7 +12,7 @@ financeRouter.get('/orders/cashier/search', authenticate, authorize('RECEPTIONIS
 financeRouter.get('/orders/:id', authenticate, authorize('MEMBER', 'RECEPTIONIST', 'CENTER_MANAGER'), controller.getOrder)
 financeRouter.post('/orders/:id/promotion', authenticate, authorize('MEMBER'), controller.applyPromotion)
 financeRouter.post('/orders/:id/payments/vnpay', authenticate, authorize('MEMBER'), controller.createVnpayPayment)
-financeRouter.post('/orders/:id/payments/cash', authenticate, authorize('RECEPTIONIST', 'CENTER_MANAGER'), controller.payCash)
+financeRouter.post('/orders/:id/payments/cash', authenticate, authorize('RECEPTIONIST'), controller.payCash)
 financeRouter.post('/orders/:id/wallet-payments', authenticate, authorize('MEMBER'), controller.payWallet)
 financeRouter.post('/orders/:id/pay', authenticate, authorize('MEMBER'), controller.payWalletLegacy)
 financeRouter.get('/members/me/wallet', authenticate, authorize('MEMBER'), controller.getWallet)

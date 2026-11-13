@@ -33,7 +33,7 @@ app.use(errorHandler)
 
 const auth = (userId = 5, role = 'MEMBER') => `Bearer ${createAccessToken({ userId, role })}`
 
-const OLD_PASSWORD = 'matkhau123'
+const OLD_PASSWORD = 'Matkhau123'
 let oldHash = ''
 
 // note: hồ sơ Member mẫu; overrides để đổi role/status cho từng trường hợp
@@ -147,7 +147,7 @@ describe('FR-05 Xem và cập nhật hồ sơ', () => {
 
 describe('FR-62 Đổi mật khẩu', () => {
   const change = (body: object) => request(app).put('/users/me/password').set('Authorization', auth()).send(body)
-  const valid = { currentPassword: OLD_PASSWORD, newPassword: 'matkhaumoi456', confirmPassword: 'matkhaumoi456' }
+  const valid = { currentPassword: OLD_PASSWORD, newPassword: 'Matkhaumoi456', confirmPassword: 'Matkhaumoi456' }
 
   it('đổi thành công: lưu hash mới, thu hồi refresh token, ghi audit, cấp phiên mới', async () => {
     prisma.user.findUnique.mockResolvedValue(memberRow())
@@ -160,7 +160,7 @@ describe('FR-62 Đổi mật khẩu', () => {
     expect(response.body.refreshToken).toBeUndefined()
     expect(response.headers['set-cookie']).toEqual(expect.arrayContaining([expect.stringContaining('sportigo_refresh=')]))
     const savedHash = prisma.user.update.mock.calls[0][0].data.passwordHash
-    expect(await bcrypt.compare('matkhaumoi456', savedHash)).toBe(true)
+    expect(await bcrypt.compare('Matkhaumoi456', savedHash)).toBe(true)
     expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 5, revokedAt: null } }))
     expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: 'PASSWORD_CHANGED', entityId: '5' })
     // note: audit không được chứa hash mật khẩu

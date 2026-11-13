@@ -14,6 +14,15 @@ describe('registerSchema', () => {
     expect(registerSchema.safeParse(validInput).success).toBe(true)
   })
 
+  it('BR-03: chỉ kiểm tra độ dài 8–72 ký tự', () => {
+    const withPassword = (password: string) => ({ ...validInput, password, confirmPassword: password })
+    expect(registerSchema.safeParse(withPassword('1234567')).success).toBe(false)
+    expect(registerSchema.safeParse(withPassword('a'.repeat(73))).success).toBe(false)
+    expect(registerSchema.safeParse(withPassword('12345678')).success).toBe(true)
+    expect(registerSchema.safeParse(withPassword('a'.repeat(72))).success).toBe(true)
+    expect(resetPasswordSchema.safeParse({ email: 'member@sportigo.vn', code: '123456', password: 'short', confirmPassword: 'short' }).success).toBe(false)
+  })
+
   it('rejects mismatched passwords', () => {
     expect(registerSchema.safeParse({ ...validInput, confirmPassword: 'Different123' }).success).toBe(false)
   })

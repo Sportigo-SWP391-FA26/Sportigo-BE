@@ -1,3 +1,4 @@
+import { strongPasswordSchema } from '../../lib/password.js'
 import { z } from 'zod'
 
 // note: trường riêng theo role; service dùng 2 danh sách này để trả 400 FIELD_NOT_ALLOWED
@@ -37,7 +38,7 @@ export const updateProfileSchema = z
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>
 
 // note: cùng rule với registerSchema/resetPasswordSchema (8–72 ký tự; bcrypt chỉ dùng 72 byte đầu)
-const passwordSchema = z.string().min(8, 'Mật khẩu phải có ít nhất 8 ký tự').max(72)
+const passwordSchema = strongPasswordSchema
 
 export const changePasswordSchema = z
   .object({

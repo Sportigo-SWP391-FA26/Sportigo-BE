@@ -1,3 +1,4 @@
+import { strongPasswordSchema } from '../../lib/password.js'
 import { z } from 'zod'
 
 // FR-07: Manager chỉ tạo được 2 loại nhân sự này; Manager mới không tạo qua API
@@ -38,7 +39,7 @@ export const createStaffSchema = z
     email: z.string().trim().toLowerCase().email(),
     phone: phoneSchema,
     // note: mật khẩu ban đầu do Manager đặt, nhân sự tự đổi lại bằng FR-62 sau khi xác minh email
-    password: z.string().min(8, 'Mật khẩu phải có ít nhất 8 ký tự').max(72),
+    password: strongPasswordSchema,
     avatarUrl: z.string().url().nullable().optional(),
     hiredAt: hiredAtSchema.optional(),
     bio: z.string().trim().max(1000).optional(),

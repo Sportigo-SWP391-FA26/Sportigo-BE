@@ -183,15 +183,20 @@ export async function listPromotions(user: { id: number; role: string }) {
     }))
 }
 export async function createPromotion(data: Prisma.PromotionCreateInput, actorId: number) {
-  const created = await prisma.promotion.create({ data })
-  await audit(prisma, { actorId, action: 'CREATE_PROMOTION', entityType: 'Promotion', entityId: created.id, newData: created })
-  return created
+  // BR-49: audit chung transaction, ghi log thất bại thì không tạo khuyến mãi
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.promotion.create({ data })
+    await audit(tx, { actorId, action: 'CREATE_PROMOTION', entityType: 'Promotion', entityId: created.id, newData: created })
+    return created
+  })
 }
 export async function updatePromotion(id: number, data: Prisma.PromotionUpdateInput, actorId: number) {
   const old = await prisma.promotion.findUnique({ where: { id } }); if (!old) throw new HttpError(404, 'Không tìm thấy khuyến mãi', 'PROMOTION_NOT_FOUND')
-  const updated = await prisma.promotion.update({ where: { id }, data })
-  await audit(prisma, { actorId, action: 'UPDATE_PROMOTION', entityType: 'Promotion', entityId: id, oldData: old, newData: updated })
-  return updated
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.promotion.update({ where: { id }, data })
+    await audit(tx, { actorId, action: 'UPDATE_PROMOTION', entityType: 'Promotion', entityId: id, oldData: old, newData: updated })
+    return updated
+  })
 }
 
 async function ensureMethod(db: Db, code: string, name: string, isOnline: boolean) {
@@ -347,6 +352,7 @@ export async function processVnpayIpn(params: VnpayParams) {
     const claimed = await tx.payment.updateMany({ where: { id: payment.id, status: 'PENDING' }, data: { status: success ? 'SUCCESS' : 'FAILED', paidAt: success ? new Date() : undefined } })
     if (claimed.count !== 1) return false
     await tx.onlineTransaction.update({ where: { paymentId: payment.id }, data: { providerTransactionId: params.vnp_TransactionNo, responsePayload: params, status: success ? 'SUCCESS' : 'FAILED', processedAt: new Date() } })
+    await audit(tx, { action: success ? 'ONLINE_PAYMENT_SUCCESS' : 'ONLINE_PAYMENT_FAILED', entityType: 'Payment', entityId: payment.id, newData: { orderId: payment.orderId, amount: payment.amount.toString(), provider: 'VNPAY', transactionNo: params.vnp_TransactionNo, responseCode: params.vnp_ResponseCode } })
     if (success) await finalizePaidOrder(tx, payment.orderId)
     else if (invitation?.status === 'ACCEPTED') {
       await waitlistService.failAcceptedInvitationInTransaction(tx, payment.orderId, new Date())
@@ -374,6 +380,11 @@ export async function processVnpayReturn(params: VnpayParams) {
 
 export async function payCash(orderId: number, actorId: number, receivedAmount: number, ipAddress?: string) {
   return prisma.$transaction(async (tx) => {
+    // BR-35: chỉ lễ tân đang hoạt động được ghi nhận tiền mặt
+    const collector = await tx.user.findUnique({ where: { id: actorId }, select: { status: true, deletedAt: true, role: { select: { name: true } } } })
+    if (!collector || collector.deletedAt || collector.status !== 'ACTIVE' || collector.role.name !== 'RECEPTIONIST') {
+      throw new HttpError(403, 'Chỉ nhân viên lễ tân đang hoạt động được phép ghi nhận thanh toán tiền mặt tại quầy', 'CASH_COLLECTOR_NOT_ALLOWED')
+    }
     const order = await requireOrder(orderId, { id: actorId, role: 'RECEPTIONIST' }, tx); assertPayable(order); const due = remaining(order)
     if (due.lessThanOrEqualTo(0)) throw new HttpError(409, 'Đơn hàng đã được thanh toán đủ', 'ORDER_ALREADY_PAID')
     if (!money(receivedAmount).equals(due)) throw new HttpError(400, 'Số tiền thu phải đúng bằng số tiền đơn hàng còn thiếu', 'CASH_AMOUNT_MISMATCH')
@@ -396,6 +407,7 @@ export async function payWithWallet(orderId: number, amount: number, memberId: n
     await tx.walletTransaction.create({ data: { walletId: wallet.id, createdById: memberId, type: 'ORDER_DEBIT', amount: requested, balanceBefore: wallet.balance, balanceAfter: after, referenceType: 'ServiceOrder', referenceId: String(orderId), idempotencyKey: key, description: `Thanh toán ${order.orderNumber}` } })
     const method = await ensureMethod(tx, 'WALLET', 'Ví Sportigo', false)
     const payment = await tx.payment.create({ data: { orderId, paymentMethodId: method.id, reference: `WAL-${Date.now()}-${orderId}`, amount: requested, channel: 'WALLET', status: 'SUCCESS', paidAt: new Date() } })
+    await audit(tx, { actorId: memberId, action: 'WALLET_PAYMENT', entityType: 'Payment', entityId: payment.id, newData: { orderId, amount: requested.toString(), walletBalance: after.toString() } })
     const updated = await finalizePaidOrder(tx, orderId)
     return { payment, walletBalance: asNumber(after), remainingAmount: asNumber(remaining(updated)) }
   })
@@ -489,12 +501,18 @@ export async function listRefunds() {
 }
 export async function reviewRefund(id: number, decision: 'REVIEW' | 'APPROVE' | 'REJECT', note: string, actorId: number, approvedAmount?: number) {
   const current = await prisma.refundRequest.findUnique({ where: { id } }); if (!current) throw new HttpError(404, 'Không tìm thấy yêu cầu hoàn tiền', 'REFUND_NOT_FOUND')
-  const allowed = decision === 'REVIEW' ? current.status === 'REQUESTED' : ['REQUESTED', 'UNDER_REVIEW'].includes(current.status)
+  // BR-40: REQUESTED → UNDER_REVIEW → APPROVED/REJECTED, không bỏ qua bước xét duyệt
+  const allowed = decision === 'REVIEW' ? current.status === 'REQUESTED' : current.status === 'UNDER_REVIEW'
   if (!allowed) throw new HttpError(409, 'Trạng thái hoàn tiền không cho phép thao tác này', 'INVALID_REFUND_TRANSITION')
   const status = decision === 'REVIEW' ? 'UNDER_REVIEW' : decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
   if (decision === 'APPROVE' && (!approvedAmount || money(approvedAmount).greaterThan(current.requestedAmount))) throw new HttpError(400, 'Số tiền duyệt phải lớn hơn 0 và không vượt số tiền yêu cầu', 'INVALID_APPROVED_AMOUNT')
-  const updated = await prisma.refundRequest.update({ where: { id }, data: { status, approvedAmount: decision === 'APPROVE' ? money(approvedAmount!) : undefined, reviewedById: actorId, reviewedAt: new Date(), reviewNote: note } })
-  await audit(prisma, { actorId, action: `${decision}_REFUND`, entityType: 'RefundRequest', entityId: id, oldData: current, newData: updated })
+  const updated = await prisma.$transaction(async (tx) => {
+    const changed = await tx.refundRequest.updateMany({ where: { id, status: current.status }, data: { status, approvedAmount: decision === 'APPROVE' ? money(approvedAmount!) : undefined, reviewedById: actorId, reviewedAt: new Date(), reviewNote: note } })
+    if (changed.count !== 1) throw new HttpError(409, 'Trạng thái hoàn tiền không cho phép thao tác này', 'INVALID_REFUND_TRANSITION')
+    const row = await tx.refundRequest.findUniqueOrThrow({ where: { id } })
+    await audit(tx, { actorId, action: `${decision}_REFUND`, entityType: 'RefundRequest', entityId: id, oldData: current, newData: row })
+    return row
+  })
   // note(FR-54): báo Member khi yêu cầu hoàn tiền được duyệt hoặc bị từ chối (bước REVIEW chỉ là nội bộ)
   if (decision !== 'REVIEW') await notify(prisma, { userIds: [current.memberId], type: NOTIFICATION_TYPES.REFUND, title: decision === 'APPROVE' ? 'Yêu cầu hoàn tiền đã được duyệt' : 'Yêu cầu hoàn tiền bị từ chối', content: decision === 'APPROVE' ? `Yêu cầu hoàn tiền #${id} được duyệt ${vnd(updated.approvedAmount ?? current.requestedAmount)}. Tiền sẽ được cộng vào ví khi hoàn tất.` : `Yêu cầu hoàn tiền #${id} bị từ chối. Ghi chú: ${note}` })
   return updated

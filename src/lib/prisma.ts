@@ -32,13 +32,17 @@ function resolveDatabaseUrl() {
   } else if (parsed.port === '6543') {
     parsed.searchParams.set('pgbouncer', 'true')
   }
+  // Ưu tiên biến môi trường, rồi tới giá trị đã ghi trong URL, cuối cùng mới là mặc định.
+  // Local và Render dùng chung Supabase nên giới hạn vừa phải cho từng process.
+  const urlLimit = parsed.searchParams.get('connection_limit')
+  const urlTimeout = parsed.searchParams.get('pool_timeout')
   parsed.searchParams.set(
     'connection_limit',
-    // Local và Render dùng chung Supabase. Giới hạn vừa phải cho từng process
-    // tránh hai môi trường chiếm hết connection pool của dự án.
-    isTest ? (process.env.TEST_DB_CONNECTION_LIMIT ?? '3') : (process.env.DB_CONNECTION_LIMIT ?? '5'),
+    (isTest ? process.env.TEST_DB_CONNECTION_LIMIT : process.env.DB_CONNECTION_LIMIT) ?? urlLimit ?? '5',
   )
-  parsed.searchParams.set('pool_timeout', process.env.DB_POOL_TIMEOUT ?? '10')
+  // Test chạy tuần tự nhiều transaction dài qua mạng; 10 giây chờ pool là quá ngắn.
+  parsed.searchParams.set('pool_timeout', process.env.DB_POOL_TIMEOUT ?? urlTimeout ?? (isTest ? '30' : '10'))
+  if (!parsed.searchParams.has('connect_timeout')) parsed.searchParams.set('connect_timeout', '15')
   return parsed.toString()
 }
 

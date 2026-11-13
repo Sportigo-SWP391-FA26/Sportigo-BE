@@ -10,6 +10,7 @@ const { prisma } = vi.hoisted(() => ({ prisma: {
 vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(function PrismaClientMock() { return prisma }), ClassStatus: { DRAFT: 'DRAFT', OPEN: 'OPEN' }, CoachStatus: { ACTIVE: 'ACTIVE', INACTIVE: 'INACTIVE' }, SessionStatus: { SCHEDULED: 'SCHEDULED' } }))
 import { GroupClassService } from '../../src/modules/group-classes/group-class.service.js'
 const service = new GroupClassService()
+// BR-09 được kiểm tra trong test 'từ chối mốc thời gian sai thứ tự' bên dưới
 const validClass = () => ({ sportId: 1, coachId: 10, name: 'Beginner swim', capacity: 10, tuitionFee: 100, registrationOpenAt: '2026-10-01T00:00:00Z', registrationCloseAt: '2026-10-20T00:00:00Z', startDate: '2026-10-21T00:00:00Z', endDate: '2026-12-21T00:00:00Z' })
 describe('FR-15 / FR-16 Group class', () => {
   beforeEach(() => {
@@ -18,6 +19,16 @@ describe('FR-15 / FR-16 Group class', () => {
   })
   it('rejects a non-positive class capacity', async () => {
     await expect(service.createGroupClass({ ...validClass(), capacity: 0 })).rejects.toThrow('Sức chứa')
+  })
+  it('từ chối mốc thời gian sai thứ tự khi tạo lớp (BR-09)', async () => {
+    const invalid = [
+      { registrationOpenAt: '2026-10-20T00:00:00Z', registrationCloseAt: '2026-10-01T00:00:00Z' },
+      { registrationCloseAt: '2026-10-25T00:00:00Z' },
+      { startDate: '2026-12-31T00:00:00Z' },
+    ]
+    for (const dates of invalid) {
+      await expect(service.createGroupClass({ ...validClass(), ...dates })).rejects.toMatchObject({ code: 'INVALID_CLASS_DATE_RANGE' })
+    }
   })
   it('rejects negative tuition', async () => {
     await expect(service.createGroupClass({ ...validClass(), tuitionFee: -1 })).rejects.toThrow('Học phí')
