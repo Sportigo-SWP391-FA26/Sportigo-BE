@@ -99,6 +99,7 @@ describe('FR-14 Coach availability', () => {
       effectiveTo: new Date('2026-11-30T00:00:00Z'),
       room: { id: 1 },
       enrollment: {
+        coachId: 7,
         startDate: new Date('2026-09-01T00:00:00Z'),
         expiryDate: new Date('2026-11-30T00:00:00Z'),
       },
@@ -108,6 +109,7 @@ describe('FR-14 Coach availability', () => {
         rescheduledStartsAt: new Date('2026-10-06T10:00:00Z'),
         rescheduledEndsAt: new Date('2026-10-06T11:00:00Z'),
         newRoom: { id: 2 },
+        newCoachId: null,
       }],
     }])
 

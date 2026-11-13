@@ -233,7 +233,7 @@ describe('FR-33 / FR-34 Private course enrollment and schedule', () => {
       orderBy: { id: 'desc' },
       include: expect.objectContaining({
         member: { select: { userId: true, memberCode: true } },
-        schedules: true,
+        schedules: { include: { exceptions: true, room: true } },
       }),
     }))
   })
@@ -251,7 +251,7 @@ describe('FR-33 / FR-34 Private course enrollment and schedule', () => {
       orderBy: { id: 'desc' },
       include: expect.objectContaining({
         member: { select: { userId: true, memberCode: true } },
-        schedules: true,
+        schedules: { include: { exceptions: true, room: true } },
       }),
     }))
     expect(prisma.privateCourseEnrollment.findMany.mock.calls[0][0]).not.toHaveProperty('where')
