@@ -12,6 +12,15 @@ import { WORKFORCE_RULES, centerDayRange, formatCenterTime, ms } from './workfor
 
 type Db = Prisma.TransactionClient | typeof prisma
 
+function rethrowShiftOverlap(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError &&
+      ['P2004', 'P2010'].includes(error.code) &&
+      (String(error.meta?.constraint ?? '') + String(error.meta?.message ?? '')).includes('StaffShift_no_scheduled_overlap')) {
+    throw new HttpError(409, 'Lễ tân đã có ca khác trùng khung giờ.', 'SHIFT_OVERLAP')
+  }
+  throw error
+}
+
 const adjustmentSelect = {
   id: true,
   clockInAt: true,
@@ -152,7 +161,8 @@ export async function createShift(actor: AuthUser, input: CreateShiftInput) {
   }
   if (staff.status !== 'ACTIVE') throw new HttpError(409, 'Tài khoản lễ tân đang không hoạt động.', 'STAFF_INACTIVE')
 
-  const created = await prisma.$transaction(async (tx) => {
+  let created: ShiftRow
+  try { created = await prisma.$transaction(async (tx) => {
     await assertShiftTimes(tx, input.staffId, input.startsAt, input.endsAt)
     const shift = await tx.staffShift.create({
       data: { staffId: input.staffId, startsAt: input.startsAt, endsAt: input.endsAt, note: input.note || null, createdById: actor.id },
@@ -172,7 +182,7 @@ export async function createShift(actor: AuthUser, input: CreateShiftInput) {
       content: `Ca làm ${shiftLabel(shift)}.${input.note ? ` Ghi chú: ${input.note}` : ''}`,
     })
     return shift
-  })
+  }) } catch (error) { rethrowShiftOverlap(error) }
   return toView(created)
 }
 
@@ -208,7 +218,7 @@ export async function updateShift(actor: AuthUser, id: number, input: UpdateShif
       })
     }
     return loadShift(id, tx)
-  })
+  }).catch(rethrowShiftOverlap)
   return toView(updated)
 }
 

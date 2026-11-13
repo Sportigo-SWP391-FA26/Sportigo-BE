@@ -54,6 +54,17 @@ describe.skipIf(!hasTestDatabase)('FR-67 Ca làm và chấm công lễ tân', ()
     expect((await create({ staffId: receptionist.id, startsAt: iso(DAY_MS), endsAt: iso(DAY_MS + HOUR) }, receptionist.auth)).status).toBe(403)
   })
 
+  it('hai yêu cầu xếp ca trùng đồng thời chỉ một ca được tạo', async () => {
+    const startsAt = iso(20 * DAY_MS)
+    const endsAt = iso(20 * DAY_MS + 4 * HOUR)
+    const results = await Promise.all([
+      create({ staffId: otherReceptionist.id, startsAt, endsAt }),
+      create({ staffId: otherReceptionist.id, startsAt, endsAt }),
+    ])
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409])
+    expect(await prisma.staffShift.count({ where: { staffId: otherReceptionist.id, startsAt: new Date(startsAt), status: 'SCHEDULED' } })).toBe(1)
+  })
+
   it('lễ tân vào ca (trễ ~20 phút), không vào 2 lần, người khác không thao tác được ca này', async () => {
     expect((await post(`/${currentShiftId}/clock-in`, otherReceptionist.auth)).status).toBe(404)
     const response = await post(`/${currentShiftId}/clock-in`, receptionist.auth)

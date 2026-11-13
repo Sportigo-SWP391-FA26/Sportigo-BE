@@ -18,7 +18,7 @@ const { prisma, refundClassRegistrationToWallet, offerNextInTransaction } = vi.h
       updateMany: vi.fn(),
       count: vi.fn(),
     },
-    classSession: { findMany: vi.fn() },
+    classSession: { findMany: vi.fn(), findFirst: vi.fn(async () => null) },
     privateCourseSchedule: { findMany: vi.fn() },
     member: { findUnique: vi.fn() },
     serviceOrder: { create: vi.fn(), updateMany: vi.fn() },

@@ -139,7 +139,10 @@ export async function applyPromotion(orderId: number, code: string, user: { id: 
       create: { orderId: order.id, promotionId: promotion.id, memberId: order.memberId, expiresAt: order.expiresAt },
       update: { promotionId: promotion.id, memberId: order.memberId, expiresAt: order.expiresAt, status: 'ACTIVE' },
     })
+    // Mã giảm toàn bộ: không còn gì để thanh toán nên hoàn tất đơn ngay sau khi ghi audit
+    const settleFree = finalAmount.lessThanOrEqualTo(0)
     await audit(tx, { actorId: user.id, action: 'APPLY_PROMOTION', entityType: 'ServiceOrder', entityId: order.id, oldData: { promotionId: order.promotionId }, newData: { promotionId: promotion.id, discount: discount.toString() } })
+    if (settleFree) await finalizePaidOrder(tx, order.id)
     return requireOrder(order.id, user, tx)
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -201,6 +204,19 @@ export async function updatePromotion(id: number, data: Prisma.PromotionUpdateIn
 
 async function ensureMethod(db: Db, code: string, name: string, isOnline: boolean) {
   return db.paymentMethod.upsert({ where: { code }, create: { code, name, isOnline }, update: { name, isOnline, isActive: true } })
+}
+
+/**
+ * Đơn 0 đồng (dịch vụ miễn phí) không đi qua kênh thanh toán nào, nên kích hoạt dịch vụ
+ * và phát hành hóa đơn ngay khi tạo. Trả về true khi đơn được hoàn tất.
+ */
+export async function settleZeroAmountOrder(orderId: number) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.serviceOrder.findUnique({ where: { id: orderId }, select: { status: true, finalAmount: true } })
+    if (!order || order.status !== 'PENDING_PAYMENT' || order.finalAmount.greaterThan(0)) return false
+    await finalizePaidOrder(tx, orderId)
+    return true
+  })
 }
 
 async function finalizePaidOrder(tx: Prisma.TransactionClient, orderId: number) {

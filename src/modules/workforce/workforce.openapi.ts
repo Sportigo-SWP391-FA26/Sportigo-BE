@@ -10,6 +10,21 @@ const json = (properties: object, required: string[] = []) => ({ required: true,
 const dateTime = { type: 'string', format: 'date-time', example: '2026-11-20T08:00:00+07:00' }
 
 export const workforcePaths = {
+  '/coach-absences/private/me/sessions': { get: { tags: coachTags, security, summary: 'Coach xem các buổi 1–1 sắp tới có thể báo nghỉ', responses: { '200': ok('Danh sách'), ...common } } },
+  '/coach-absences/private/me': {
+    get: { tags: coachTags, security, summary: 'Coach xem yêu cầu báo nghỉ 1–1 của mình', responses: { '200': ok('Danh sách'), ...common } },
+    post: { tags: coachTags, security, summary: 'Coach báo nghỉ một buổi 1–1 theo ngày của lịch lặp', requestBody: json({ scheduleId: { type: 'integer' }, sessionDate: { type: 'string', format: 'date' }, reason: { type: 'string' } }, ['scheduleId', 'sessionDate', 'reason']), responses: { '201': ok('Đã gửi Manager'), '409': ok('Buổi đã bắt đầu, hoàn thành hoặc đã báo nghỉ'), ...common } },
+  },
+  '/coach-absences/private': { get: { tags: coachTags, security, summary: 'Manager xem yêu cầu báo nghỉ buổi 1–1', responses: { '200': ok('Danh sách'), ...common } } },
+  '/coach-absences/private/{id}/review': { post: { tags: coachTags, security, summary: 'Manager duyệt hủy buổi 1–1 hoặc từ chối', parameters: pathInt('id'), requestBody: json({ approve: { type: 'boolean' }, reason: { type: 'string' } }, ['approve']), responses: { '200': ok('Đã xử lý'), '409': ok('Buổi không còn đủ điều kiện hủy'), ...common } } },
+  '/coach-absences/private/{id}/makeup': { post: { tags: coachTags, security, summary: 'Manager xếp buổi bù 1–1 trong 14 ngày và trước hạn khóa', parameters: pathInt('id'), requestBody: json({ coachId: { type: 'integer' }, roomId: { type: 'integer' }, startsAt: dateTime, endsAt: dateTime }, ['coachId', 'roomId', 'startsAt', 'endsAt']), responses: { '201': ok('Đã xếp bù'), '409': ok('Trùng lịch, thiếu availability hoặc quá hạn'), ...common } } },
+  '/coach-absences/me': {
+    get: { tags: coachTags, security, summary: 'Coach xem yêu cầu báo nghỉ của mình', responses: { '200': ok('Danh sách'), ...common } },
+    post: { tags: coachTags, security, summary: 'Coach báo nghỉ một buổi chưa bắt đầu', requestBody: json({ sessionId: { type: 'integer' }, reason: { type: 'string' } }, ['sessionId', 'reason']), responses: { '201': ok('Đã gửi Manager'), '409': ok('Buổi đã bắt đầu hoặc đã báo nghỉ'), ...common } },
+  },
+  '/coach-absences': { get: { tags: coachTags, security, summary: 'Manager xem hàng đợi báo nghỉ và xếp bù', responses: { '200': ok('Danh sách'), ...common } } },
+  '/coach-absences/{id}/review': { post: { tags: coachTags, security, summary: 'Manager duyệt hủy buổi hoặc từ chối báo nghỉ', parameters: pathInt('id'), requestBody: json({ approve: { type: 'boolean' }, reason: { type: 'string' } }, ['approve']), responses: { '200': ok('Đã xử lý'), '409': ok('Buổi không còn đủ điều kiện hủy'), ...common } } },
+  '/coach-absences/{id}/makeup': { post: { tags: coachTags, security, summary: 'Manager xếp một buổi bù trong 14 ngày và trước hạn lớp', parameters: pathInt('id'), requestBody: json({ coachId: { type: 'integer' }, roomId: { type: 'integer' }, startsAt: dateTime, endsAt: dateTime }, ['coachId', 'roomId', 'startsAt', 'endsAt']), responses: { '201': ok('Đã xếp bù'), '409': ok('Trùng lịch, thiếu availability hoặc quá hạn'), ...common } } },
   '/session-coaches': {
     get: {
       tags: coachTags, security, summary: 'Manager xem coach dạy thực tế của các buổi (tối đa 31 ngày)',
@@ -27,9 +42,6 @@ export const workforcePaths = {
       responses: { '200': ok('Đã giao'), '409': ok('Sai môn, trùng lịch, trùng coach chính hoặc buổi đã khóa'), ...common },
     },
     delete: { tags: coachTags, security, summary: 'Hoàn tác dạy thay / coach vắng', parameters: pathInt('sessionId'), responses: { '200': ok('Đã trả về coach chính'), '409': ok('Không có gì để hoàn tác hoặc buổi đã khóa'), ...common } },
-  },
-  '/session-coaches/{sessionId}/absence': {
-    post: { tags: coachTags, security, summary: 'Ghi nhận coach chính vắng, không có người thay', parameters: pathInt('sessionId'), requestBody: json({ reason: { type: 'string' } }, ['reason']), responses: { '200': ok('Đã ghi nhận'), ...common } },
   },
   '/staff-shifts': {
     get: { tags: shiftTags, security, summary: 'Manager xem ca làm lễ tân', parameters: [query('from', true), query('to', true), query('staffId', false, { type: 'integer' })], responses: { '200': ok('Danh sách ca'), ...common } },

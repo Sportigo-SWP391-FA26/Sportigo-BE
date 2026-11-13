@@ -189,7 +189,7 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       data: {
         coachId: coach.id,
         dayOfWeek: firstDate.getUTCDay(),
-        // Legacy recurrence uses UTC instants; availability is stored as Sportigo local wall-clock time.
+        // Giờ lặp và availability đều là giờ Việt Nam.
         startTime: new Date('1970-01-01T17:00:00.000Z'),
         endTime: new Date('1970-01-01T19:00:00.000Z'),
         effectiveFrom: availabilityFrom,
@@ -567,8 +567,8 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
         roomId: scenario.room.id,
         recurrence: {
           dayOfWeek: scenario.firstDate.getUTCDay(),
-          startTime: '10:00',
-          endTime: '11:00',
+          startTime: '17:00',
+          endTime: '18:00',
           effectiveFrom: scenario.dateString(scenario.firstDate),
           effectiveTo: scenario.dateString(scenario.lastDate),
         },
@@ -597,8 +597,8 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       data: {
         classId: scenario.groupClass.id,
         roomId: scenario.room.id,
-        startsAt: new Date(`${scenario.dateString(conflictDate)}T10:30:00.000Z`),
-        endsAt: new Date(`${scenario.dateString(conflictDate)}T11:30:00.000Z`),
+        startsAt: new Date(`${scenario.dateString(conflictDate)}T17:30:00+07:00`),
+        endsAt: new Date(`${scenario.dateString(conflictDate)}T18:30:00+07:00`),
       },
     })
 
@@ -609,8 +609,8 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
         roomId: scenario.room.id,
         recurrence: {
           dayOfWeek: scenario.firstDate.getUTCDay(),
-          startTime: '10:00',
-          endTime: '11:00',
+          startTime: '17:00',
+          endTime: '18:00',
           effectiveFrom: scenario.dateString(scenario.firstDate),
           effectiveTo: scenario.dateString(scenario.lastDate),
         },
@@ -773,8 +773,9 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
     const session = await createSession({
       classId: groupClass.id,
       roomId: room.id,
-      startsAt: Date.now() + 60 * 60 * 1000,
-      endsAt: Date.now() + 2 * 60 * 60 * 1000,
+      // Buổi đang diễn ra để API điểm danh cũ không bị khóa thời gian (BR-43)
+      startsAt: Date.now() - 30 * 60 * 1000,
+      endsAt: Date.now() + 30 * 60 * 1000,
     })
     const registration = await createRegistration({
       memberId: orderOwner.id,

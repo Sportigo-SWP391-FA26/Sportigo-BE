@@ -23,6 +23,8 @@ const { prisma, sendVerificationEmail } = vi.hoisted(() => {
   return { prisma, sendVerificationEmail: vi.fn() }
 })
 vi.mock('../../src/lib/prisma.js', () => ({ prisma }))
+// Trạng thái tài khoản ở middleware được kiểm tra riêng trong auth-middleware.test.ts
+vi.mock('../../src/lib/auth-state.js', () => ({ assertActiveSession: async () => {}, invalidateAuthState: () => {} }))
 // note: không gửi mail thật trong test
 vi.mock('../../src/modules/auth/email.service.js', () => ({ sendVerificationEmail, sendPasswordResetEmail: vi.fn() }))
 

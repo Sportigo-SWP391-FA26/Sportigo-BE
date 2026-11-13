@@ -12,6 +12,7 @@ import { notificationsRouter } from '../modules/notifications/notifications.rout
 import { supportRouter } from '../modules/support/support.routes.js'
 import { sessionCoachRouter } from '../modules/workforce/session-coach.routes.js'
 import { staffShiftRouter } from '../modules/workforce/staff-shift.routes.js'
+import { coachAbsenceRouter } from '../modules/workforce/coach-absence.routes.js'
 
 import sportRoutes from '../modules/sports/sport.routes.js'
 import roomRoutes from '../modules/rooms/room.routes.js'
@@ -65,6 +66,7 @@ apiRouter.use('/coach-availability-change-requests', availabilityChangeRequestRo
 // note: FR-66 coach dạy thực tế từng buổi, FR-67 ca làm và chấm công lễ tân
 apiRouter.use('/session-coaches', sessionCoachRouter)
 apiRouter.use('/staff-shifts', staffShiftRouter)
+apiRouter.use('/coach-absences', coachAbsenceRouter)
 
 // Notifications (FR-54)
 apiRouter.use('/notifications', notificationsRouter)

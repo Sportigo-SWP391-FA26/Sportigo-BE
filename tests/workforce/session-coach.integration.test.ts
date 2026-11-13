@@ -140,20 +140,33 @@ describe.skipIf(!hasTestDatabase)('FR-66 Dạy thay và coach vắng', () => {
     expect((await put(cancelled.id, { coachId: subCoach.id, reason: 'Buổi đã hủy' })).body.code).toBe('SESSION_COACH_LOCKED')
   })
 
-  it('ghi nhận coach vắng không có người thay, rồi hoàn tác', async () => {
+  it('Coach báo nghỉ, Manager duyệt thì hủy buổi và chờ xếp bù', async () => {
     const session = await newSession(now + 8 * DAY)
-    const absent = await request(app).post(`/api/session-coaches/${session.id}/absence`).set('Authorization', manager.auth).send({ reason: 'Ốm đột xuất' })
-    expect(absent.status).toBe(200)
-    expect(absent.body).toMatchObject({ coachAbsent: true, actualCoach: { id: mainCoach.id }, replacedCoach: null })
-
-    const reset = await request(app).delete(`/api/session-coaches/${session.id}/substitute`).set('Authorization', manager.auth)
-    expect(reset.status).toBe(200)
-    expect(reset.body).toMatchObject({ coachAbsent: false, replacedCoach: null, reason: null })
-    // note: buổi tương lai trả về NULL = đi theo coach lớp
-    expect((await prisma.classSession.findUniqueOrThrow({ where: { id: session.id } })).coachId).toBeNull()
-
-    const again = await request(app).delete(`/api/session-coaches/${session.id}/substitute`).set('Authorization', manager.auth)
-    expect(again.body.code).toBe('NOTHING_TO_RESET')
+    const invalid = await request(app).post('/api/coach-absences/me').set('Authorization', subCoach.auth).send({ sessionId: session.id, reason: 'Ốm đột xuất' })
+    expect(invalid.status).toBe(403)
+    const absent = await request(app).post('/api/coach-absences/me').set('Authorization', mainCoach.auth).send({ sessionId: session.id, reason: 'Ốm đột xuất' })
+    expect(absent.status).toBe(201)
+    expect(absent.body.status).toBe('PENDING')
+    const reviewed = await request(app).post(`/api/coach-absences/${absent.body.id}/review`).set('Authorization', manager.auth).send({ approve: true })
+    expect(reviewed.status).toBe(200)
+    expect(reviewed.body.status).toBe('APPROVED')
+    expect((await prisma.classSession.findUniqueOrThrow({ where: { id: session.id } })).status).toBe('CANCELLED')
+    expect((await request(app).post(`/api/coach-absences/${absent.body.id}/review`).set('Authorization', manager.auth).send({ approve: true })).status).toBe(409)
+    expect((await request(app).post(`/api/session-coaches/${session.id}/absence`).set('Authorization', manager.auth).send({ reason: 'legacy' })).status).toBe(404)
+    const makeupStart = new Date(session.startsAt)
+    makeupStart.setUTCDate(makeupStart.getUTCDate() + 3)
+    makeupStart.setUTCHours(2, 0, 0, 0)
+    const makeupEnd = new Date(makeupStart.getTime() + 90 * 60 * 1000)
+    await prisma.coachAvailability.create({ data: {
+      coachId: mainCoach.id, dayOfWeek: makeupStart.getUTCDay(),
+      startTime: new Date('1970-01-01T09:00:00.000Z'), endTime: new Date('1970-01-01T10:30:00.000Z'),
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+    } })
+    const body = { coachId: mainCoach.id, roomId, startsAt: makeupStart.toISOString(), endsAt: makeupEnd.toISOString() }
+    const makeup = await request(app).post(`/api/coach-absences/${absent.body.id}/makeup`).set('Authorization', manager.auth).send(body)
+    expect(makeup.status).toBe(201)
+    expect(makeup.body.makeupSessionId).toBeTypeOf('number')
+    expect((await request(app).post(`/api/coach-absences/${absent.body.id}/makeup`).set('Authorization', manager.auth).send(body)).status).toBe(409)
   })
 
   it('danh sách theo khoảng ngày, lọc chỉ buổi có thay đổi; khoảng ngày quá 31 ngày bị chặn', async () => {

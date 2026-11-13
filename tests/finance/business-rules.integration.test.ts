@@ -2,6 +2,7 @@ import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { app } from '../../src/app.js'
 import { prisma } from '../../src/lib/prisma.js'
+import { invalidateAuthState } from '../../src/lib/auth-state.js'
 import { hasTestDatabase } from '../support/test-database.js'
 import { createManager, createMember, createReceptionist, resetDatabase } from '../training/fixtures.js'
 
@@ -37,10 +38,13 @@ describe.skipIf(!hasTestDatabase)('Business rules: thu tiền mặt và audit th
     expect(byManager.status).toBe(403)
 
     await prisma.user.update({ where: { id: receptionist.id }, data: { status: 'LOCKED' } })
+    invalidateAuthState(receptionist.id)
     const byLocked = await request(app).post(`/api/orders/${orderId}/payments/cash`).set('Authorization', receptionist.auth).send({ amount: 300_000 })
-    expect(byLocked.status).toBe(403)
-    expect(byLocked.body.code).toBe('CASH_COLLECTOR_NOT_ALLOWED')
+    // Tài khoản bị khóa bị chặn ngay ở middleware xác thực
+    expect(byLocked.status).toBe(401)
+    expect(byLocked.body.code).toBe('ACCOUNT_INACTIVE')
     await prisma.user.update({ where: { id: receptionist.id }, data: { status: 'ACTIVE' } })
+    invalidateAuthState(receptionist.id)
 
     const byReceptionist = await request(app).post(`/api/orders/${orderId}/payments/cash`).set('Authorization', receptionist.auth).send({ amount: 300_000 })
     expect(byReceptionist.status).toBeLessThan(300)

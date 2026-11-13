@@ -1,3 +1,4 @@
+import { autoConfirmOverdue } from './modules/private-courses/private-attendance.service.js'
 import { app } from './app.js'
 import { env } from './config/env.js'
 import { prisma } from './lib/prisma.js'
@@ -22,6 +23,7 @@ const runWaitlistExpiryWorker = () => {
       console.error('Failed to expire waitlist offers:', error)
     })
     .then(() => expirePendingOrders())
+    .then(() => autoConfirmOverdue())
     .catch((error: unknown) => {
       console.error('Failed to expire pending orders:', error)
     })

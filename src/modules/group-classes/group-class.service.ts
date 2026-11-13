@@ -31,6 +31,14 @@ export interface CreateGroupClassDto {
   endDate: string | Date;
 }
 
+// CANCELLED không nằm ở đây: hủy lớp có luồng riêng (hoàn tiền, thông báo)
+const CLASS_STATUS_TRANSITIONS: Partial<Record<ClassStatus, ClassStatus[]>> = {
+  DRAFT: [ClassStatus.OPEN, ClassStatus.CLOSED],
+  OPEN: [ClassStatus.CLOSED, ClassStatus.IN_PROGRESS],
+  CLOSED: [ClassStatus.OPEN, ClassStatus.IN_PROGRESS],
+  IN_PROGRESS: [ClassStatus.COMPLETED],
+};
+
 export class GroupClassService {
   // Lấy danh sách lớp nhóm
   async getAllGroupClasses() {
@@ -279,6 +287,23 @@ export class GroupClassService {
     const groupClass = await prisma.groupClass.findUnique({ where: { id } });
     if (!groupClass) {
       throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND');
+    }
+
+    // Hủy lớp đi qua bookingService.cancelGroupClass để hoàn tiền và thông báo
+    const allowed = CLASS_STATUS_TRANSITIONS[groupClass.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new HttpError(409, `Không thể chuyển lớp từ ${groupClass.status} sang ${status}.`, 'INVALID_CLASS_STATUS_TRANSITION', { from: groupClass.status, to: status });
+    }
+    const now = new Date();
+    if (status === ClassStatus.OPEN && now >= groupClass.startDate) {
+      throw new HttpError(409, 'Lớp đã đến ngày bắt đầu nên không thể mở đăng ký.', 'CLASS_ALREADY_STARTED');
+    }
+    if (status === ClassStatus.IN_PROGRESS && now < groupClass.startDate) {
+      throw new HttpError(409, 'Lớp chưa đến ngày bắt đầu.', 'CLASS_NOT_STARTED');
+    }
+    if (status === ClassStatus.COMPLETED) {
+      const remaining = await prisma.classSession.count({ where: { classId: id, status: 'SCHEDULED', endsAt: { gt: now } } });
+      if (remaining > 0) throw new HttpError(409, 'Lớp vẫn còn buổi học chưa diễn ra.', 'CLASS_HAS_UPCOMING_SESSIONS');
     }
 
     if (status === ClassStatus.OPEN) {

@@ -1,3 +1,5 @@
+import { settleZeroAmountOrder } from '../finance/finance.service.js';
+import { centerDateOnly, centerDateTime, centerDayOfWeek } from '../../lib/center-time.js';
 import {
   EnrollmentStatus,
   OrderItemType,
@@ -62,10 +64,9 @@ function parseTime(value: string) {
   };
 }
 
+// Giờ HH:mm của lịch 1-1 là giờ Việt Nam
 function timeOnDate(date: Date, time: { hours: number; minutes: number }) {
-  const result = new Date(date);
-  result.setUTCHours(time.hours, time.minutes, 0, 0);
-  return result;
+  return centerDateTime(date, time);
 }
 
 function overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
@@ -73,7 +74,7 @@ function overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
 }
 
 function dateOnly(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return centerDateOnly(date);
 }
 
 function parseDateOnly(value: string) {
@@ -468,7 +469,7 @@ export class PrivateCourseService {
       status: ScheduleStatus.ACTIVE,
     }));
     const now = new Date();
-    return prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx) => {
       const enrollment = await tx.privateCourseEnrollment.create({
         data: {
           memberId: data.memberId,
@@ -505,6 +506,10 @@ export class PrivateCourseService {
       });
       return { enrollment, order };
     });
+    if (Number(created.order.finalAmount) <= 0 && await settleZeroAmountOrder(created.order.id)) {
+      return { ...created, enrollment: { ...created.enrollment, status: EnrollmentStatus.ACTIVE } };
+    }
+    return created;
   }
 
   async addCourseSchedule(
@@ -785,7 +790,7 @@ export class PrivateCourseService {
       const availability = await prisma.coachAvailability.findMany({
         where: {
           coachId: schedule.enrollment.coachId,
-          dayOfWeek: rescheduledStartsAt.getUTCDay(),
+          dayOfWeek: centerDayOfWeek(rescheduledStartsAt),
           status: 'AVAILABLE',
           effectiveFrom: { lte: newDate },
           OR: [{ effectiveTo: null }, { effectiveTo: { gte: newDate } }],
@@ -844,7 +849,7 @@ export class PrivateCourseService {
               {
                 OR: [
                   {
-                    dayOfWeek: rescheduledStartsAt.getUTCDay(),
+                    dayOfWeek: centerDayOfWeek(rescheduledStartsAt),
                     effectiveFrom: { lte: newDate },
                     effectiveTo: { gte: newDate },
                   },
@@ -895,7 +900,7 @@ export class PrivateCourseService {
           other.id === scheduleId && newDate.getTime() === sessionDate.getTime();
         const recurringConflict =
           !occurrenceWasMoved &&
-          other.dayOfWeek === rescheduledStartsAt!.getUTCDay() &&
+          other.dayOfWeek === centerDayOfWeek(rescheduledStartsAt!) &&
           other.effectiveFrom <= newDate &&
           other.effectiveTo >= newDate &&
           originalException?.action !== 'CANCELLED' &&
@@ -1018,9 +1023,6 @@ export class PrivateCourseService {
       include: { enrollment: true },
     });
     if (!schedule) throw new HttpError(404, 'Không tìm thấy lịch khóa học.', 'SCHEDULE_NOT_FOUND');
-    if (schedule.enrollment.coachId !== coachId) {
-      throw new HttpError(403, FORBIDDEN_MESSAGE, 'FORBIDDEN');
-    }
     if (
       schedule.status !== ScheduleStatus.ACTIVE ||
       schedule.enrollment.status !== EnrollmentStatus.ACTIVE ||
@@ -1050,6 +1052,9 @@ export class PrivateCourseService {
     const exception = await prisma.privateCourseScheduleException.findUnique({
       where: { scheduleId_sessionDate: { scheduleId, sessionDate } },
     });
+    if ((exception?.newCoachId ?? schedule.enrollment.coachId) !== coachId) {
+      throw new HttpError(403, FORBIDDEN_MESSAGE, 'FORBIDDEN');
+    }
     if (exception?.action === 'CANCELLED') {
       throw new HttpError(409, 'Buổi học đã bị hủy và không thể ghi nhận attendance.', 'OCCURRENCE_CANCELLED');
     }
@@ -1065,6 +1070,12 @@ export class PrivateCourseService {
     }
 
     return prisma.$transaction(async (tx) => {
+      // Khóa enrollment để hai lần ghi nhận đồng thời không cùng vượt số buổi còn lại
+      await tx.$queryRaw`SELECT "id" FROM "PrivateCourseEnrollment" WHERE "id" = ${schedule.enrollmentId} FOR UPDATE`;
+      // Buổi chờ xác nhận chưa trừ nhưng đã giữ chỗ: không cho ghi nhận vượt số buổi còn lại
+      const awaiting = await tx.privateCourseAttendance.count({
+        where: { schedule: { enrollmentId: schedule.enrollmentId }, status: { in: ['PENDING_CONFIRMATION', 'DISPUTED'] } },
+      });
       const created = await tx.privateCourseAttendance.createMany({
         data: [{
           scheduleId,
@@ -1075,50 +1086,27 @@ export class PrivateCourseService {
         }],
         skipDuplicates: true,
       });
-      if (created.count === 0) {
-        const existing = await tx.privateCourseAttendance.findUnique({
-          where: { scheduleId_sessionDate: { scheduleId, sessionDate } },
-        });
-        const currentEnrollment = await tx.privateCourseEnrollment.findUniqueOrThrow({
-          where: { id: schedule.enrollmentId },
-          select: { remainingSessions: true },
-        });
-        return {
-          attendance: existing,
-          remainingSessions: currentEnrollment.remainingSessions,
-          alreadyRecorded: true,
-        };
-      }
-
-      const consumed = await tx.privateCourseEnrollment.updateMany({
-        where: {
-          id: schedule.enrollmentId,
-          status: EnrollmentStatus.ACTIVE,
-          remainingSessions: { gt: 0 },
-        },
-        data: { remainingSessions: { decrement: 1 } },
-      });
-      if (consumed.count !== 1) {
-        throw new HttpError(409, 'Khóa học không còn buổi học hợp lệ.', 'NO_SESSIONS_REMAINING');
-      }
-      const updated = await tx.privateCourseEnrollment.findUniqueOrThrow({
+      const enrollment = await tx.privateCourseEnrollment.findUniqueOrThrow({
         where: { id: schedule.enrollmentId },
-        select: { remainingSessions: true },
+        select: { remainingSessions: true, memberId: true, privateCourse: { select: { name: true } } },
       });
-      if (updated.remainingSessions === 0) {
-        await tx.privateCourseEnrollment.update({
-          where: { id: schedule.enrollmentId },
-          data: { status: EnrollmentStatus.COMPLETED },
-        });
-      }
       const attendance = await tx.privateCourseAttendance.findUniqueOrThrow({
         where: { scheduleId_sessionDate: { scheduleId, sessionDate } },
       });
-      return {
-        attendance,
-        remainingSessions: updated.remainingSessions,
-        alreadyRecorded: false,
-      };
+      if (created.count === 0) {
+        return { attendance, remainingSessions: enrollment.remainingSessions, alreadyRecorded: true };
+      }
+      if (awaiting >= enrollment.remainingSessions) {
+        throw new HttpError(409, 'Khóa học không còn buổi học hợp lệ.', 'NO_SESSIONS_REMAINING');
+      }
+      // Chỉ trừ buổi sau khi hội viên xác nhận (hoặc tự xác nhận sau 48 giờ)
+      await notify(tx, {
+        userIds: [enrollment.memberId],
+        type: NOTIFICATION_TYPES.SCHEDULE_CHANGE,
+        title: 'Xác nhận buổi học 1-1',
+        content: `Coach đã ghi nhận buổi ${sessionDateInput} của khóa "${enrollment.privateCourse.name}". Vui lòng xác nhận hoặc khiếu nại trong 48 giờ; sau thời hạn buổi sẽ được tự xác nhận.`,
+      });
+      return { attendance, remainingSessions: enrollment.remainingSessions, alreadyRecorded: false };
     });
   }
 
@@ -1143,7 +1131,7 @@ export class PrivateCourseService {
         member: { select: { userId: true, memberCode: true } },
         coach: { include: { user: { select: { id: true, displayName: true } } } },
         privateCourse: { include: { sport: true } },
-        schedules: true,
+        schedules: { include: { exceptions: true, room: true } },
       },
       orderBy: { id: 'desc' },
     });

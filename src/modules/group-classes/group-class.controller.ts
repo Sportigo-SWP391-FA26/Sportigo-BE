@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Request, Response, NextFunction } from 'express';
 import groupClassService from './group-class.service.js';
 import { ClassStatus } from '@prisma/client';
@@ -45,7 +46,7 @@ export class GroupClassController {
   async updateStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = Number(req.params.id);
-      const { status } = req.body; // OPEN, CLOSED, CANCELLED...
+      const status = z.nativeEnum(ClassStatus).parse(req.body?.status);
       if (status === ClassStatus.CANCELLED) {
         const result = await bookingService.cancelGroupClass(id, getAuthUser(req).id);
         res.status(200).json({ success: true, message: 'Hủy lớp thành công', data: result });

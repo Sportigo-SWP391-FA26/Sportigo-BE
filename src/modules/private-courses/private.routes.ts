@@ -1,3 +1,4 @@
+import * as attendanceController from './private-attendance.controller.js';
 
 import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.js';
@@ -64,6 +65,12 @@ router.get(
   authorize('MEMBER', 'COACH', 'RECEPTIONIST', 'CENTER_MANAGER'),
   privateController.getEnrollment,
 );
+// Hội viên đối chiếu buổi 1-1 Coach đã ghi nhận; Manager xử lý khiếu nại
+router.get('/attendances/pending', authenticate, authorize('MEMBER'), attendanceController.listPending);
+router.post('/attendances/:attendanceId/confirm', authenticate, authorize('MEMBER'), attendanceController.confirm);
+router.post('/attendances/:attendanceId/dispute', authenticate, authorize('MEMBER'), attendanceController.dispute);
+router.get('/attendances/disputes', authenticate, authorize('CENTER_MANAGER'), attendanceController.listDisputes);
+router.post('/attendances/:attendanceId/resolve', authenticate, authorize('CENTER_MANAGER'), attendanceController.resolve);
 router.post(
   '/enrollments/:id/schedules/:scheduleId/attendance',
   authenticate,

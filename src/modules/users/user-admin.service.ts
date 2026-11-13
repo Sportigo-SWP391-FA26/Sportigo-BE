@@ -1,3 +1,4 @@
+import { invalidateAuthState } from '../../lib/auth-state.js'
 import type { Prisma } from '@prisma/client'
 import { HttpError } from '../../lib/http-error.js'
 import { FORBIDDEN_MESSAGE, type AuthUser } from '../../middleware/auth.js'
@@ -96,6 +97,7 @@ export async function changeStatus(actor: AuthUser, userId: number, input: Chang
   invalidateUserListCache()
   // note: xóa cache /users/me để tài khoản vừa khóa bị chặn ngay (403), vừa mở khóa thì thấy trạng thái mới ngay
   invalidateProfileCache()
+  invalidateAuthState(userId)
   return toUserSummary(updated)
 }
 
@@ -109,4 +111,5 @@ export async function deleteAccount(actor: AuthUser, userId: number, ipAddress?:
   invalidateUserListCache()
   // note: tài khoản đã xóa mềm cũng không được đọc hồ sơ từ cache cũ
   invalidateProfileCache()
+  invalidateAuthState(userId)
 }

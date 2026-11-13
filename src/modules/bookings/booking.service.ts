@@ -1,4 +1,6 @@
+import { settleZeroAmountOrder } from '../finance/finance.service.js';
 import { ClassStatus, RegistrationStatus, OrderStatus, OrderItemType, Prisma  } from '@prisma/client';
+import { centerDateOnly, centerDateTime, wallClock } from '../../lib/center-time.js';
 import { HttpError } from '../../lib/http-error.js';
 import { prisma } from '../../lib/prisma.js';
 import { lockGroupClass } from '../../lib/group-class-lock.js';
@@ -207,11 +209,7 @@ export class BookingService {
       }
 
       return privateSchedules.some((schedule) => {
-        const date = new Date(Date.UTC(
-          candidate.startsAt.getUTCFullYear(),
-          candidate.startsAt.getUTCMonth(),
-          candidate.startsAt.getUTCDate(),
-        ));
+        const date = centerDateOnly(candidate.startsAt);
         const effectiveFrom = new Date(schedule.effectiveFrom);
         const effectiveTo = new Date(schedule.effectiveTo);
         if (
@@ -222,20 +220,9 @@ export class BookingService {
           return false;
         }
 
-        const scheduledStart = new Date(date);
-        scheduledStart.setUTCHours(
-          schedule.startTime.getUTCHours(),
-          schedule.startTime.getUTCMinutes(),
-          schedule.startTime.getUTCSeconds(),
-          0,
-        );
-        const scheduledEnd = new Date(date);
-        scheduledEnd.setUTCHours(
-          schedule.endTime.getUTCHours(),
-          schedule.endTime.getUTCMinutes(),
-          schedule.endTime.getUTCSeconds(),
-          0,
-        );
+        // Giờ lịch 1-1 là giờ Việt Nam
+        const scheduledStart = centerDateTime(date, wallClock(schedule.startTime));
+        const scheduledEnd = centerDateTime(date, wallClock(schedule.endTime));
         return candidate.startsAt < scheduledEnd && candidate.endsAt > scheduledStart;
       });
     });
@@ -318,7 +305,7 @@ export class BookingService {
     await this.validateMemberSchedule(memberId, classId);
 
     // Thực hiện Transaction: Tạo Order thanh toán + Bản ghi đăng ký PENDING_PAYMENT
-    return withTransactionRetry(() => prisma.$transaction(async (tx) => {
+    const created = await withTransactionRetry(() => prisma.$transaction(async (tx) => {
       if (!await lockGroupClass(tx, classId)) {
         throw new HttpError(404, 'Lớp học không tồn tại trong hệ thống.', 'CLASS_NOT_FOUND');
       }
@@ -428,6 +415,11 @@ export class BookingService {
         status: registration.status,
       };
     }));
+    // Lớp miễn phí: không có gì để thanh toán nên xác nhận chỗ ngay
+    if (Number(created.amount) <= 0 && await settleZeroAmountOrder(created.orderId)) {
+      return { ...created, status: RegistrationStatus.CONFIRMED };
+    }
+    return created;
   }
 
   async registerClassOnBehalf(memberId: number, classId: number) {
@@ -603,6 +595,14 @@ export class BookingService {
       }
       if (groupClass.status === ClassStatus.CANCELLED) {
         throw new HttpError(409, 'Lớp học đã được hủy trước đó.', 'CLASS_ALREADY_CANCELLED');
+      }
+      // Lớp đã có buổi diễn ra thì không được hủy cả lớp (tránh hoàn 100% học phí đã dùng)
+      const startedSession = await tx.classSession.findFirst({
+        where: { classId, status: { not: 'CANCELLED' }, startsAt: { lte: new Date() } },
+        select: { id: true },
+      });
+      if (startedSession || groupClass.status === ClassStatus.IN_PROGRESS || groupClass.status === ClassStatus.COMPLETED) {
+        throw new HttpError(409, 'Lớp đã bắt đầu học nên không thể hủy cả lớp. Hãy hủy từng buổi chưa diễn ra nếu cần.', 'CLASS_ALREADY_STARTED');
       }
 
       await tx.groupClass.update({

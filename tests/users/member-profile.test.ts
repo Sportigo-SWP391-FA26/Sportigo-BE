@@ -15,6 +15,8 @@ const { prisma } = vi.hoisted(() => {
   return { prisma }
 })
 vi.mock('../../src/lib/prisma.js', () => ({ prisma }))
+// Trạng thái tài khoản ở middleware được kiểm tra riêng trong auth-middleware.test.ts
+vi.mock('../../src/lib/auth-state.js', () => ({ assertActiveSession: async () => {}, invalidateAuthState: () => {} }))
 
 import { errorHandler } from '../../src/middleware/error-handler.js'
 import { createAccessToken } from '../../src/modules/auth/token.service.js'

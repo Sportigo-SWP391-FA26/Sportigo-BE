@@ -59,8 +59,9 @@ describe.skipIf(!hasTestDatabase)('FR-29 private-course recurring schedule integ
       data: {
         classId: groupClass.id,
         roomId: resource === 'room' ? room.id : otherRoom.id,
-        startsAt: new Date(`${date.toISOString().slice(0, 10)}T09:30:00.000Z`),
-        endsAt: new Date(`${date.toISOString().slice(0, 10)}T10:30:00.000Z`),
+        // Lịch 1-1 09:00 là giờ Việt Nam nên buổi lớp nhóm trùng cũng phải ở giờ Việt Nam
+        startsAt: new Date(`${date.toISOString().slice(0, 10)}T09:30:00+07:00`),
+        endsAt: new Date(`${date.toISOString().slice(0, 10)}T10:30:00+07:00`),
       },
     })
     await createRegistration({

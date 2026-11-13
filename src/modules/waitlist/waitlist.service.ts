@@ -1,3 +1,4 @@
+import { refundExpiredOrderPayment } from '../finance/expired-payment-refund.js';
 import {
   ClassStatus,
   WaitlistStatus,
@@ -13,6 +14,34 @@ import { prisma } from '../../lib/prisma.js';
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js';
 
 const OFFER_DURATION_MS = 2 * 60 * 60 * 1000;
+
+type SettledPayment = Parameters<typeof refundExpiredOrderPayment>[1]['payment'] & { status: string };
+
+/** Đơn waitlist không hoàn tất: phần đã trả (thường là ví) được hoàn lại vào ví ngay. */
+async function refundSettledPayments(
+  tx: Prisma.TransactionClient,
+  order: { id: number; memberId: number; orderNumber: string; payments: SettledPayment[] },
+  reason: string,
+) {
+  let refunded = 0;
+  for (const payment of order.payments) {
+    if (payment.status !== 'SUCCESS' && payment.status !== 'PARTIALLY_REFUNDED') continue;
+    refunded += Number(await refundExpiredOrderPayment(tx, {
+      payment,
+      orderId: order.id,
+      memberId: order.memberId,
+      reason: `Hoàn tiền do đơn ${order.orderNumber} ${reason}`,
+    }));
+  }
+  if (refunded > 0) {
+    await notify(tx, {
+      userIds: [order.memberId],
+      type: NOTIFICATION_TYPES.REFUND,
+      title: 'Đã hoàn tiền vào ví',
+      content: `Đơn ${order.orderNumber} ${reason}. ${refunded.toLocaleString('vi-VN')} đ đã được hoàn vào ví Sportigo.`,
+    });
+  }
+}
 
 export class WaitlistService {
   async getMemberWaitlists(memberId: number) {
@@ -340,7 +369,7 @@ export class WaitlistService {
           include: {
             waitlistInvitation: { include: { waitlist: true } },
             items: { select: { classRegistrationId: true } },
-            payments: { where: { status: 'PENDING' }, select: { id: true } },
+            payments: { where: { status: { in: ['PENDING', 'SUCCESS', 'PARTIALLY_REFUNDED'] } }, include: { adjustments: true } },
           },
         });
         for (const order of dueClassOrders) {
@@ -350,7 +379,7 @@ export class WaitlistService {
           });
           if (expired.count !== 1 || !order.waitlistInvitation) continue;
 
-          const paymentIds = order.payments.map(({ id }) => id);
+          const paymentIds = order.payments.filter((payment) => payment.status === 'PENDING').map(({ id }) => id);
           if (paymentIds.length > 0) {
             await tx.payment.updateMany({
               where: { id: { in: paymentIds }, status: 'PENDING' },
@@ -368,6 +397,7 @@ export class WaitlistService {
               data: { status: RegistrationStatus.CANCELLED, cancelledAt: now },
             });
           }
+          await refundSettledPayments(tx, order, 'hết hạn thanh toán');
           await tx.classWaitlistInvitation.updateMany({
             where: { id: order.waitlistInvitation.id, status: WaitlistInvitationStatus.ACCEPTED },
             data: {
@@ -516,6 +546,11 @@ export class WaitlistService {
       throw new HttpError(409, 'Lời mời vào lớp đã hết hạn.', 'WAITLIST_OFFER_EXPIRED');
     }
     if ('declined' in result) return { waitlist: result.declined, order: null };
+    if (Number(result.order.finalAmount) <= 0) {
+      // Import động để tránh vòng phụ thuộc finance ↔ waitlist khi nạp module
+      const { settleZeroAmountOrder } = await import('../finance/finance.service.js');
+      await settleZeroAmountOrder(result.order.id);
+    }
     return result;
   }
 
@@ -537,6 +572,11 @@ export class WaitlistService {
     if (cancelledOrder.count !== 1) return false;
 
     const classId = invitation.waitlist.classId;
+    const failedOrder = await tx.serviceOrder.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { payments: { where: { status: { in: ['SUCCESS', 'PARTIALLY_REFUNDED'] } }, include: { adjustments: true } } },
+    });
+    await refundSettledPayments(tx, failedOrder, 'thanh toán không thành công');
     await tx.classRegistration.updateMany({
       where: {
         memberId: invitation.waitlist.memberId,

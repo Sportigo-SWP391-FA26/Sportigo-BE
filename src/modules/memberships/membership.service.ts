@@ -1,3 +1,4 @@
+import { settleZeroAmountOrder } from '../finance/finance.service.js'
 import { audit } from '../../lib/audit.js'
 import { HttpError } from '../../lib/http-error.js'
 import { prisma } from '../../lib/prisma.js'
@@ -47,7 +48,7 @@ export async function deleteDraftPlan(id: number, actorId: number) {
 }
 
 export async function purchase(memberId: number, planId: number, now = new Date()) {
-  return withTransactionRetry(() => prisma.$transaction(async (tx) => {
+  const created = await withTransactionRetry(() => prisma.$transaction(async (tx) => {
     await lockMember(tx, memberId)
     const member = await tx.member.findUnique({
       where: { userId: memberId },
@@ -101,6 +102,8 @@ export async function purchase(memberId: number, planId: number, now = new Date(
       subscriptionId: subscription.id,
     }
   }))
+  if (Number(created.amount) <= 0) await settleZeroAmountOrder(created.orderId)
+  return created
 }
 
 type SubscriptionRow = Awaited<ReturnType<typeof repository.findMemberSubscriptions>>[number]

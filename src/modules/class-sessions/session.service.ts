@@ -1,3 +1,4 @@
+import { centerDateOnly, centerDateTime, centerDayOfWeek } from '../../lib/center-time.js'
 
 import { SessionStatus } from '@prisma/client'
 import coachService from '../coaches/coach.service.js'
@@ -8,7 +9,7 @@ import { taughtByCoachWhere } from '../../lib/session-coach.js' // note: FR-66
 import { NOTIFICATION_TYPES, notify } from '../notifications/notify.js'
 
 function dateOnly(value: Date) {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
+  return centerDateOnly(value)
 }
 
 function targetScheduleEnd(startDate: Date, totalSessions: number | null, sessionsPerWeek: number | null) {
@@ -19,9 +20,7 @@ function targetScheduleEnd(startDate: Date, totalSessions: number | null, sessio
 }
 
 function timeOnDate(date: Date, time: { hours: number; minutes: number }) {
-  const result = new Date(date)
-  result.setUTCHours(time.hours, time.minutes, 0, 0)
-  return result
+  return centerDateTime(date, time)
 }
 
 function centerTimeOnDate(date: Date, time: string) {
@@ -149,11 +148,15 @@ export class SessionService {
     const resourceFilters: object[] = []
     if (resources.coachId !== undefined) {
       resourceFilters.push({ enrollment: { coachId: resources.coachId } })
+      resourceFilters.push({ exceptions: { some: { newCoachId: resources.coachId, action: 'RESCHEDULED' } } })
     }
     if (resources.memberIds?.length) {
       resourceFilters.push({ enrollment: { memberId: { in: resources.memberIds } } })
     }
-    if (resources.roomId !== undefined) resourceFilters.push({ roomId: resources.roomId })
+    if (resources.roomId !== undefined) {
+      resourceFilters.push({ roomId: resources.roomId })
+      resourceFilters.push({ exceptions: { some: { newRoomId: resources.roomId, action: 'RESCHEDULED' } } })
+    }
     if (resourceFilters.length === 0) return false
 
     const sessionDay = dateOnly(startsAt)
@@ -166,7 +169,7 @@ export class SessionService {
           {
             OR: [
               {
-                dayOfWeek: startsAt.getUTCDay(),
+                dayOfWeek: centerDayOfWeek(startsAt),
                 effectiveFrom: { lte: sessionDay },
                 effectiveTo: { gte: sessionDay },
               },
@@ -201,21 +204,20 @@ export class SessionService {
     })
 
     return schedules.some((schedule) => {
-      const resourceConflict =
+      const recurringResourceConflict =
         resources.coachId === schedule.enrollment.coachId ||
         resources.memberIds?.includes(schedule.enrollment.memberId) ||
         resources.roomId === schedule.roomId
-      if (!resourceConflict) return false
 
       const exception = schedule.exceptions.find(
         (item) => item.sessionDate.getTime() === sessionDay.getTime(),
       )
       const hasRecurringOccurrence =
-        schedule.dayOfWeek === startsAt.getUTCDay() &&
+        schedule.dayOfWeek === centerDayOfWeek(startsAt) &&
         schedule.effectiveFrom <= sessionDay &&
         schedule.effectiveTo >= sessionDay
       const recurringConflict =
-        hasRecurringOccurrence &&
+        recurringResourceConflict && hasRecurringOccurrence &&
         exception?.action !== 'CANCELLED' &&
         exception?.action !== 'RESCHEDULED' &&
         overlaps(
@@ -232,6 +234,9 @@ export class SessionService {
         )
       const movedOccurrenceConflict = schedule.exceptions.some((item) =>
         item.action === 'RESCHEDULED' &&
+        (resources.coachId === (item.newCoachId ?? schedule.enrollment.coachId) ||
+          resources.memberIds?.includes(schedule.enrollment.memberId) ||
+          resources.roomId === (item.newRoomId ?? schedule.roomId)) &&
         item.rescheduledStartsAt !== null &&
         item.rescheduledEndsAt !== null &&
         overlaps(startsAt, endsAt, item.rescheduledStartsAt, item.rescheduledEndsAt),
@@ -270,6 +275,21 @@ export class SessionService {
     if (overlappingClass) return true
 
     return this.checkPrivateScheduleConflict(startsAt, endsAt, { memberIds })
+  }
+
+  async checkMakeupConflict(classId: number, roomId: number, startsAt: Date, endsAt: Date) {
+    return this.checkMemberConflict(classId, startsAt, endsAt) ||
+      this.checkPrivateScheduleConflict(startsAt, endsAt, { roomId })
+  }
+
+  async checkPrivateMakeupConflict(coachId: number, memberId: number, roomId: number, startsAt: Date, endsAt: Date) {
+    const groupConflict = await prisma.classSession.findFirst({
+      where: { status: SessionStatus.SCHEDULED, startsAt: { lt: endsAt }, endsAt: { gt: startsAt },
+        OR: [{ roomId }, { ...taughtByCoachWhere(coachId) },
+          { groupClass: { registrations: { some: { memberId, status: 'CONFIRMED' } } } }] },
+      select: { id: true },
+    })
+    return !!groupConflict || this.checkPrivateScheduleConflict(startsAt, endsAt, { coachId, memberIds: [memberId], roomId })
   }
 
   /**
