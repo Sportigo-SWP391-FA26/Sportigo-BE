@@ -7,6 +7,7 @@ export const planSelect = {
   durationMonths: true,
   price: true,
   description: true,
+  imageUrl: true,
   status: true,
 } satisfies Prisma.MembershipPlanSelect
 

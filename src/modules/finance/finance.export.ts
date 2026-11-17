@@ -3,6 +3,20 @@ import PDFDocument from 'pdfkit'
 
 type FinancialReport = Awaited<ReturnType<typeof import('./finance.service.js').financialReportData>>
 
+function selectedPaymentShare(payment: FinancialReport['payments'][number], itemType: FinancialReport['filters']['itemType']) {
+  const items = payment.order.items.filter((item) => item.itemType !== 'WALLET_TOP_UP')
+  const total = items.reduce((sum, item) => sum + Number(item.finalAmount), 0)
+  return itemType && total ? items.filter((item) => item.itemType === itemType).reduce((sum, item) => sum + Number(item.finalAmount), 0) / total : 1
+}
+
+function selectedRefundShare(adjustment: FinancialReport['refundAdjustments'][number], itemType: FinancialReport['filters']['itemType']) {
+  if (!itemType) return 1
+  if (adjustment.orderItem) return adjustment.orderItem.itemType === itemType ? 1 : 0
+  const items = adjustment.payment.order.items.filter((item) => item.itemType !== 'WALLET_TOP_UP')
+  const total = items.reduce((sum, item) => sum + Number(item.finalAmount), 0)
+  return total ? items.filter((item) => item.itemType === itemType).reduce((sum, item) => sum + Number(item.finalAmount), 0) / total : 0
+}
+
 const COLORS = { navy: 'FF0F2B5C', blue: 'FF2563EB', sky: 'FF38BDF8', lime: 'FF84CC16', orange: 'FFF97316', ink: 'FF121B2E', muted: 'FF64748B', line: 'FFE2E8F0', canvas: 'FFF8FAFC', white: 'FFFFFFFF', danger: 'FFDC2626' }
 const moneyFormat = '#,##0 "₫";[Red]-#,##0 "₫";–'
 const dateTimeFormat = 'dd/mm/yyyy hh:mm'
@@ -103,13 +117,16 @@ export async function toRevenueWorkbook(report: FinancialReport) {
   addTitle(transactions, 'CHI TIẾT GIAO DỊCH', filterLabel, 16)
   transactions.getRow(5).values = ['Ngày thanh toán', 'Mã giao dịch', 'Mã đơn', 'Hội viên', 'Mã hội viên', 'Dịch vụ', 'Giá gốc', 'Giảm giá', 'Thanh toán', 'Kênh', 'Phương thức', 'Trạng thái', 'Người thu', 'Hóa đơn', 'Hoàn tiền', 'Doanh thu thuần']
   for (const payment of report.payments) {
-    const serviceItems = payment.order.items.filter((item) => item.itemType !== 'WALLET_TOP_UP')
-    const refund = payment.adjustments.reduce((sum, item) => sum + Number(item.amount), 0)
+    const serviceItems = payment.order.items.filter((item) => item.itemType !== 'WALLET_TOP_UP' && (!report.filters.itemType || item.itemType === report.filters.itemType))
+    const share = selectedPaymentShare(payment, report.filters.itemType)
+    const paid = Number(payment.amount) * share
+    const linkedRefunds = report.refundAdjustments.filter((item) => item.paymentId === payment.id)
+    const refund = linkedRefunds.length ? linkedRefunds.reduce((sum, item) => sum + Number(item.amount) * selectedRefundShare(item, report.filters.itemType), 0) : report.filters.itemType ? 0 : payment.adjustments.reduce((sum, item) => sum + Number(item.amount), 0)
     transactions.addRow([
       payment.paidAt, payment.reference, payment.order.orderNumber, payment.order.member.user.displayName, payment.order.member.memberCode,
-      serviceItems.map((item) => item.itemNameSnapshot).join(', '), Number(payment.order.originalAmount), Number(payment.order.discountAmount), Number(payment.amount),
+      serviceItems.map((item) => item.itemNameSnapshot).join(', '), serviceItems.reduce((sum, item) => sum + Number(item.unitPrice), 0), serviceItems.reduce((sum, item) => sum + Number(item.discountAmount), 0), paid,
       channelLabels[payment.channel] ?? payment.channel, payment.paymentMethod.name, statusLabels[payment.status] ?? payment.status,
-      payment.collectedBy?.displayName ?? '—', payment.order.invoice?.invoiceNumber ?? '—', refund, Number(payment.amount) - refund,
+      payment.collectedBy?.displayName ?? '—', payment.order.invoice?.invoiceNumber ?? '—', refund, paid - refund,
     ])
   }
   if (report.payments.length === 0) transactions.addRow(['Không có dữ liệu trong kỳ'])
@@ -149,8 +166,8 @@ export async function toRevenueWorkbook(report: FinancialReport) {
   reconciliation.getRow(5).values = ['Kênh', 'Số giao dịch', 'Tổng thu', 'Hoàn tiền', 'Giá trị thuần', 'Ghi chú']
   for (const channel of ['ONLINE', 'COUNTER', 'WALLET']) {
     const channelPayments = report.payments.filter((payment) => payment.channel === channel)
-    const channelGross = channelPayments.reduce((sum, payment) => sum + Number(payment.amount), 0)
-    const channelRefunds = report.refundAdjustments.filter((adjustment) => adjustment.payment.channel === channel).reduce((sum, item) => sum + Number(item.amount), 0)
+    const channelGross = channelPayments.reduce((sum, payment) => sum + Number(payment.amount) * selectedPaymentShare(payment, report.filters.itemType), 0)
+    const channelRefunds = report.refundAdjustments.filter((adjustment) => adjustment.payment.channel === channel).reduce((sum, item) => sum + Number(item.amount) * selectedRefundShare(item, report.filters.itemType), 0)
     reconciliation.addRow([channelLabels[channel], channelPayments.length, channelGross, channelRefunds, channelGross - channelRefunds, channel === 'WALLET' ? 'Doanh thu được ghi nhận khi ví thanh toán dịch vụ.' : ''])
   }
   reconciliation.addRow(['Nạp ví Sportigo', report.walletTopUpPayments.length, report.walletTopUps, 0, report.walletTopUps, 'Khoản giữ hộ/số dư ví; không tính vào doanh thu dịch vụ.'])

@@ -7,6 +7,7 @@ const planFields = {
   durationMonths: z.coerce.number().int().min(1).max(36),
   price: z.coerce.number().positive().max(9_999_999_999),
   description: z.string().trim().max(1000).nullable().optional(),
+  imageUrl: z.string().url().max(2000).nullable().optional(),
   status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']),
 }
 
@@ -16,6 +17,7 @@ export const updatePlanSchema = z.object({
   durationMonths: planFields.durationMonths.optional(),
   price: planFields.price.optional(),
   description: planFields.description,
+  imageUrl: planFields.imageUrl,
   status: planFields.status.optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: 'Cần ít nhất một trường cần cập nhật' })
 

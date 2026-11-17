@@ -8,6 +8,7 @@ const planBody = json({
   durationMonths: { type: 'integer', example: 3 },
   price: { type: 'number' },
   description: { type: 'string', nullable: true },
+  imageUrl: { type: 'string', format: 'uri', nullable: true },
   status: { type: 'string', enum: ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED'] },
 })
 const purchaseBody = json({ planId: { type: 'integer' } })

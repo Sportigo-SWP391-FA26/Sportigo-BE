@@ -7,7 +7,7 @@ const revenueFilters = [
   { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'Đầu kỳ; mặc định ngày đầu tháng hiện tại theo giờ Việt Nam' },
   { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'Cuối kỳ; mặc định ngày cuối tháng hiện tại theo giờ Việt Nam' },
   { name: 'channel', in: 'query', schema: { type: 'string', enum: ['ONLINE', 'COUNTER', 'WALLET'] } },
-  { name: 'itemType', in: 'query', schema: { type: 'string', enum: ['GROUP_CLASS', 'PRIVATE_COURSE'] } },
+  { name: 'itemType', in: 'query', schema: { type: 'string', enum: ['GROUP_CLASS', 'PRIVATE_COURSE', 'MEMBERSHIP'] } },
 ] as const
 
 export const financePaths = {
@@ -31,6 +31,7 @@ export const financePaths = {
   '/promotions': { get: operation('Promotions', 'Danh sách khuyến mãi theo quyền', { description: 'Center Manager xem toàn bộ chương trình; Member và Receptionist chỉ nhận chương trình công khai đang hiệu lực và còn lượt.', responses: { '200': { description: 'Danh sách khuyến mãi đã lọc theo role' }, ...standard } }), post: operation('Promotions', 'Tạo chương trình khuyến mãi', { requestBody: jsonBody(['code','name','discountType','discountValue','startAt','endAt'], { code: { type: 'string' }, name: { type: 'string' }, discountType: { type: 'string', enum: ['PERCENTAGE','FIXED_AMOUNT'] }, discountValue: { type: 'number' }, isPublic: { type: 'boolean', description: 'Cho phép Member và Receptionist nhìn thấy chương trình' }, startAt: { type: 'string', format: 'date-time' }, endAt: { type: 'string', format: 'date-time' } }), responses: { '201': { description: 'Tạo thành công' }, ...standard } }) },
   '/promotions/{id}': { patch: operation('Promotions', 'Cập nhật khuyến mãi', { parameters: [id], responses: { '200': { description: 'Cập nhật thành công' }, ...standard } }) },
   '/reports/revenue': { get: operation('Reports', 'Báo cáo doanh thu', { parameters: revenueFilters, responses: { '200': { description: 'Tổng hợp doanh thu dịch vụ, hoàn tiền và nạp ví trong kỳ' }, ...standard } }) },
+  '/reports/revenue/analytics': { get: operation('Reports', 'Xu hướng và so sánh doanh thu theo kỳ', { parameters: [{ name: 'period', in: 'query', schema: { type: 'string', enum: ['MONTH', 'QUARTER', 'YEAR'], default: 'MONTH' } }, { name: 'anchor', in: 'query', schema: { type: 'string', format: 'date' } }, ...revenueFilters.slice(2)], responses: { '200': { description: 'KPI kỳ hiện tại, kỳ trước, cùng kỳ năm trước và chuỗi xu hướng' }, ...standard } }) },
   '/reports/revenue/export': { get: operation('Reports', 'Xuất báo cáo tài chính', { parameters: [...revenueFilters, { name: 'format', in: 'query', schema: { type: 'string', enum: ['xlsx','pdf'], default: 'xlsx' } }], responses: { '200': { description: 'Workbook Excel 5 sheet hoặc PDF tóm tắt' }, ...standard } }) },
   '/reports/classes': { get: operation('Reports', 'Báo cáo vận hành lớp', { responses: { '200': { description: 'Số đăng ký, waitlist, lấp đầy và tham dự' }, ...standard } }) },
   '/reports/classes/export': { get: operation('Reports', 'Xuất báo cáo vận hành lớp', { parameters: [{ name: 'format', in: 'query', schema: { type: 'string', enum: ['xlsx','pdf'], default: 'xlsx' } }], responses: { '200': { description: 'Tệp báo cáo' }, ...standard } }) },

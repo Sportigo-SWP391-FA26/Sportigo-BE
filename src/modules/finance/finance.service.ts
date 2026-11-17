@@ -9,6 +9,7 @@ import waitlistService from '../waitlist/waitlist.service.js'
 import { lockGroupClass } from '../../lib/group-class-lock.js'
 import { refundLateVnpayPayment } from './expired-payment-refund.js'
 import { activateSubscription } from '../memberships/membership-activation.js'
+export { revenueAnalytics } from './revenue-analytics.js'
 
 // note(FR-54): định dạng tiền cho nội dung thông báo
 const vnd = (value: Prisma.Decimal) => `${Number(value.toFixed(0)).toLocaleString('vi-VN')} đ`
@@ -699,12 +700,13 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
 
   for (const payment of payments) {
     const paymentAmount = asNumber(payment.amount)
-    gross += paymentAmount
-    byChannel[payment.channel] = (byChannel[payment.channel] ?? 0) + paymentAmount
-    if (!orderDiscounts.has(payment.orderId)) orderDiscounts.set(payment.orderId, asNumber(payment.order.discountAmount))
-
-    const serviceItems = payment.order.items.filter((item) => serviceItemTypes.includes(item.itemType))
-    const totalItems = serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || paymentAmount
+    const allServiceItems = payment.order.items.filter((item) => serviceItemTypes.includes(item.itemType))
+    const serviceItems = allServiceItems.filter((item) => !query.itemType || item.itemType === query.itemType)
+    const totalItems = allServiceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || paymentAmount
+    const selectedShare = serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) / totalItems
+    gross += paymentAmount * selectedShare
+    byChannel[payment.channel] = (byChannel[payment.channel] ?? 0) + paymentAmount * selectedShare
+    if (!orderDiscounts.has(payment.orderId)) orderDiscounts.set(payment.orderId, serviceItems.reduce((sum, item) => sum + asNumber(item.discountAmount), 0))
     for (const item of serviceItems) {
       const share = asNumber(item.finalAmount) / totalItems
       const group = byService[item.itemType] ?? { orders: new Set<number>(), transactions: 0, gross: 0, discount: 0, refunds: 0, net: 0 }
@@ -726,12 +728,14 @@ export async function financialReportData(input: RevenueReportQuery = {}) {
 
   for (const adjustment of refundAdjustments) {
     const refundAmount = asNumber(adjustment.amount)
-    refunds += refundAmount
-    byChannel[adjustment.payment.channel] = (byChannel[adjustment.payment.channel] ?? 0) - refundAmount
-    const serviceItems = adjustment.orderItem
+    const allServiceItems = adjustment.payment.order.items.filter((item) => serviceItemTypes.includes(item.itemType))
+    const serviceItems = (adjustment.orderItem
       ? [adjustment.orderItem]
-      : adjustment.payment.order.items.filter((item) => serviceItemTypes.includes(item.itemType))
-    const totalItems = serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || asNumber(adjustment.payment.amount)
+      : allServiceItems).filter((item) => !query.itemType || item.itemType === query.itemType)
+    const totalItems = allServiceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) || asNumber(adjustment.payment.amount)
+    const selectedShare = adjustment.orderItem ? serviceItems.length : serviceItems.reduce((sum, item) => sum + asNumber(item.finalAmount), 0) / totalItems
+    refunds += refundAmount * selectedShare
+    byChannel[adjustment.payment.channel] = (byChannel[adjustment.payment.channel] ?? 0) - refundAmount * selectedShare
     for (const item of serviceItems) {
       const group = byService[item.itemType] ?? { orders: new Set<number>(), transactions: 0, gross: 0, discount: 0, refunds: 0, net: 0 }
       const refundShare = adjustment.orderItem ? refundAmount : refundAmount * (asNumber(item.finalAmount) / totalItems)
