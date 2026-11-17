@@ -13,7 +13,7 @@ export const uploadPaths = {
               required: ['image', 'purpose'],
               properties: {
                 image: { type: 'string', format: 'binary' },
-                purpose: { type: 'string', enum: ['avatar', 'sport', 'content'] },
+                purpose: { type: 'string', enum: ['avatar', 'sport', 'content', 'membership'] },
               },
             },
           },

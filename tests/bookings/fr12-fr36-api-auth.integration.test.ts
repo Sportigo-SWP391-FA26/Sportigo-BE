@@ -81,6 +81,7 @@ describe.skipIf(!hasTestDatabase)('FR-12–FR-36 API authentication and ownershi
       ['post', '/api/promotions'],
       ['patch', '/api/promotions/1'],
       ['get', '/api/reports/revenue'],
+      ['get', '/api/reports/revenue/analytics'],
       ['get', '/api/reports/revenue/export'],
       ['get', '/api/reports/classes'],
       ['get', '/api/reports/classes/export'],

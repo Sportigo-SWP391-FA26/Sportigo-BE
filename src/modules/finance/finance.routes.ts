@@ -26,6 +26,7 @@ financeRouter.get('/promotions', authenticate, authorize('MEMBER', 'RECEPTIONIST
 financeRouter.post('/promotions', authenticate, authorize('CENTER_MANAGER'), controller.createPromotion)
 financeRouter.patch('/promotions/:id', authenticate, authorize('CENTER_MANAGER'), controller.updatePromotion)
 financeRouter.get('/reports/revenue', authenticate, authorize('CENTER_MANAGER'), controller.revenueReport)
+financeRouter.get('/reports/revenue/analytics', authenticate, authorize('CENTER_MANAGER'), controller.revenueAnalytics)
 financeRouter.get('/reports/revenue/export', authenticate, authorize('CENTER_MANAGER'), controller.exportRevenue)
 financeRouter.get('/reports/classes', authenticate, authorize('CENTER_MANAGER'), controller.classReport)
 financeRouter.get('/reports/classes/export', authenticate, authorize('CENTER_MANAGER'), controller.exportClasses)

@@ -2,13 +2,14 @@ import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary'
 import { env } from '../../config/env.js'
 import { HttpError } from '../../lib/http-error.js'
 
-export const uploadPurposes = ['avatar', 'sport', 'content'] as const
+export const uploadPurposes = ['avatar', 'sport', 'content', 'membership'] as const
 export type UploadPurpose = (typeof uploadPurposes)[number]
 
 const folders: Record<UploadPurpose, string> = {
   avatar: 'sportigo/avatars',
   sport: 'sportigo/sports',
   content: 'sportigo/content',
+  membership: 'sportigo/memberships',
 }
 
 export async function uploadImage(buffer: Buffer, purpose: UploadPurpose) {

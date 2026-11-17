@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express'
 import { env } from '../../config/env.js'
 import { getAuthUser } from '../../middleware/auth.js'
 import * as finance from './finance.service.js'
-import { auditExportSchema, auditListSchema, cashOrderSearchSchema, cashPaymentSchema, classReportSchema, idParamSchema, paginationSchema, paymentListSchema, promotionApplySchema, promotionSchema, promotionUpdateSchema, refundCreateSchema, refundReviewSchema, revenueReportSchema, walletPaymentSchema, walletTopUpSchema } from './finance.schema.js'
+import { auditExportSchema, auditListSchema, cashOrderSearchSchema, cashPaymentSchema, classReportSchema, idParamSchema, paginationSchema, paymentListSchema, promotionApplySchema, promotionSchema, promotionUpdateSchema, refundCreateSchema, refundReviewSchema, revenueAnalyticsSchema, revenueReportSchema, walletPaymentSchema, walletTopUpSchema } from './finance.schema.js'
 import { normalizeVnpayQuery } from './vnpay.js'
 import { toAuditWorkbook, toClassPdf, toClassWorkbook, toInvoicePdf, toRevenuePdf, toRevenueWorkbook } from './finance.export.js'
 
@@ -37,6 +37,7 @@ export const listRefunds: RequestHandler = async (_req, res) => res.json(await f
 export const reviewRefund: RequestHandler = async (req, res) => { const value = refundReviewSchema.parse(req.body); res.json(await finance.reviewRefund(id(req.params.id), value.decision, value.note, getAuthUser(req).id, value.approvedAmount)) }
 export const completeRefund: RequestHandler = async (req, res) => res.json(await finance.completeRefund(id(req.params.id), getAuthUser(req).id, ip(req.ip)))
 export const revenueReport: RequestHandler = async (req, res) => res.json(await finance.revenueReport(revenueReportSchema.parse(req.query)))
+export const revenueAnalytics: RequestHandler = async (req, res) => res.json(await finance.revenueAnalytics(revenueAnalyticsSchema.parse(req.query)))
 export const classReport: RequestHandler = async (req, res) => res.json(await finance.classReport(classReportSchema.parse(req.query)))
 export const listAuditLogs: RequestHandler = async (req, res) => res.json(await finance.listAuditLogs(auditListSchema.parse(req.query)))
 export const exportAuditLogs: RequestHandler = async (req, res) => {

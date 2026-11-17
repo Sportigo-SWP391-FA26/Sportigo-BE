@@ -6,6 +6,7 @@ export const paymentListSchema = paginationSchema.extend({ from: z.coerce.date()
 export const revenueReportSchema = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), channel: z.enum(['ONLINE','COUNTER','WALLET']).optional(), itemType: z.enum(['GROUP_CLASS','PRIVATE_COURSE','MEMBERSHIP']).optional() }).superRefine((value, ctx) => {
   if (value.from && value.to && value.from > value.to) ctx.addIssue({ code: 'custom', path: ['to'], message: 'Ngày kết thúc phải từ ngày bắt đầu trở đi' })
 })
+export const revenueAnalyticsSchema = z.object({ period: z.enum(['MONTH', 'QUARTER', 'YEAR']).default('MONTH'), anchor: z.iso.date().optional(), channel: z.enum(['ONLINE','COUNTER','WALLET']).optional(), itemType: z.enum(['GROUP_CLASS','PRIVATE_COURSE','MEMBERSHIP']).optional() })
 export const classReportSchema = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), sportId: z.coerce.number().int().positive().optional(), coachId: z.coerce.number().int().positive().optional(), classId: z.coerce.number().int().positive().optional() })
 export const auditListSchema = paginationSchema.extend({ actorId: z.coerce.number().int().positive().optional(), action: z.string().trim().min(1).optional(), entityType: z.string().trim().min(1).optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() })
 export const auditExportSchema = auditListSchema.omit({ page: true, limit: true })
