@@ -74,6 +74,29 @@ describe.skipIf(!hasTestDatabase)('Membership và check-in', () => {
     expect(await prisma.gymCheckIn.count({ where: { memberId: member.id } })).toBe(1)
   })
 
+  it('Manager và lễ tân xem lịch sử toàn trung tâm; Member chỉ xem lịch sử của mình', async () => {
+    await buyAndPay()
+    const checkedIn = await scan()
+    expect(checkedIn.status).toBe(201)
+
+    for (const auth of [manager.auth, receptionist.auth]) {
+      const history = await request(app).get('/api/check-ins?page=1&limit=20').set('Authorization', auth)
+      expect(history.status).toBe(200)
+      expect(history.body.items.some((row: { id: number }) => row.id === checkedIn.body.id)).toBe(true)
+    }
+
+    expect((await request(app).get('/api/check-ins').set('Authorization', member.auth)).status).toBe(403)
+    const mine = await request(app).get('/api/members/me/check-ins?page=1&limit=20').set('Authorization', member.auth)
+    expect(mine.status).toBe(200)
+    expect(mine.body.items).toHaveLength(1)
+    expect(mine.body.items[0].id).toBe(checkedIn.body.id)
+
+    const otherMember = await createMember()
+    const otherHistory = await request(app).get('/api/members/me/check-ins').set('Authorization', otherMember.auth)
+    expect(otherHistory.status).toBe(200)
+    expect(otherHistory.body.items).toHaveLength(0)
+  })
+
   it('mua thêm khi còn hạn thì gói mới nối tiếp, không chồng ngày', async () => {
     await buyAndPay()
     await buyAndPay()
