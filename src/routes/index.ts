@@ -30,6 +30,7 @@ import { availabilityChangeRequestRouter, availabilitySubmissionRouter, coachAva
 import { assessmentMetricRouter } from '../modules/training/assessment-metric.routes.js'
 import { membershipRouter } from '../modules/memberships/membership.routes.js'
 import { coachAssessmentRouter } from '../modules/training/progress-assessment.routes.js'
+import { payrollRouter } from '../modules/payroll/payroll.routes.js'
 
 import { centerSettingsRouter } from '../modules/center-settings/center-settings.routes.js'
 
@@ -47,6 +48,7 @@ apiRouter.use('/users', usersRouter)
 
 // Staff management (FR-07)
 apiRouter.use('/staff', staffRouter)
+apiRouter.use('/payroll', payrollRouter)
 apiRouter.use('/uploads', uploadRouter)
 
 // Phải đứng trước '/members' để POST /members/:id/memberships không bị router hội viên chặn

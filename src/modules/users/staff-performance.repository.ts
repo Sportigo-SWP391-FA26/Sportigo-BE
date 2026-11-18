@@ -34,10 +34,13 @@ export function findHeldClassSessions(coachIds: number[], range: Range, now: Dat
     where: {
       status: { not: 'CANCELLED' },
       endsAt: { gte: range.start, lt: end },
-      groupClass: { coachId: { in: coachIds } },
+      OR: [
+        { coachId: { in: coachIds } },
+        { coachId: null, groupClass: { coachId: { in: coachIds } } },
+      ],
     },
     // note: lấy kèm trạng thái điểm danh để vừa đếm buổi đã điểm danh vừa tính tỷ lệ có mặt trong cùng 1 truy vấn
-    select: { groupClass: { select: { coachId: true } }, attendances: { select: { status: true } } },
+    select: { coachId: true, coachAbsent: true, replacedCoachId: true, groupClass: { select: { coachId: true } }, attendances: { select: { status: true } } },
   })
 }
 
@@ -45,7 +48,7 @@ export function findHeldClassSessions(coachIds: number[], range: Range, now: Dat
 export function countPrivateSessionsByCoach(coachIds: number[], range: Range) {
   return prisma.privateCourseAttendance.groupBy({
     by: ['markedById'],
-    where: { markedById: { in: coachIds }, startsAt: { gte: range.start, lt: range.endExclusive } },
+    where: { markedById: { in: coachIds }, status: 'CONFIRMED', startsAt: { gte: range.start, lt: range.endExclusive } },
     _count: { _all: true },
   })
 }

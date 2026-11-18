@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // note: giả lập đúng các bảng FR-65 đọc; mặc định trả rỗng, từng test tự đặt dữ liệu
 const { prisma } = vi.hoisted(() => ({
   prisma: {
-    user: { findMany: vi.fn() },
+    user: { findMany: vi.fn(), findUnique: vi.fn() },
     classSession: { findMany: vi.fn() },
     privateCourseAttendance: { groupBy: vi.fn() },
     progressAssessment: { groupBy: vi.fn() },
@@ -21,6 +21,7 @@ const { prisma } = vi.hoisted(() => ({
 vi.mock('../../src/lib/prisma.js', () => ({ prisma }))
 
 import { errorHandler } from '../../src/middleware/error-handler.js'
+import { invalidateAuthState } from '../../src/lib/auth-state.js'
 import { createAccessToken } from '../../src/modules/auth/token.service.js'
 import { toDateColumnRange, toInstantRange } from '../../src/modules/users/staff-performance.schema.js'
 import { staffRouter } from '../../src/modules/users/staff.routes.js'
@@ -43,6 +44,8 @@ const staffRows = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  invalidateAuthState()
+  prisma.user.findUnique.mockImplementation(async ({ where }: { where: { id: number } }) => ({ id: where.id, status: 'ACTIVE', deletedAt: null, role: { name: 'CENTER_MANAGER' } }))
   prisma.user.findMany.mockResolvedValue(staffRows)
   for (const fn of [
     prisma.classSession.findMany, prisma.classRegistration.findMany, prisma.privateCourseEnrollment.findMany, prisma.supportRequest.findMany,
@@ -54,7 +57,11 @@ afterEach(() => vi.useRealTimers())
 
 describe('FR-65 Hiệu suất nhân sự', () => {
   it('chỉ Center Manager xem được', async () => {
-    for (const role of ['RECEPTIONIST', 'COACH', 'MEMBER']) expect((await get(undefined, role)).status).toBe(403)
+    for (const role of ['RECEPTIONIST', 'COACH', 'MEMBER']) {
+      invalidateAuthState()
+      prisma.user.findUnique.mockResolvedValueOnce({ status: 'ACTIVE', deletedAt: null, role: { name: role } })
+      expect((await get(undefined, role)).status).toBe(403)
+    }
     expect((await request(app).get('/staff/performance')).status).toBe(401)
   })
 
@@ -82,8 +89,8 @@ describe('FR-65 Hiệu suất nhân sự', () => {
 
   it('Coach: đếm buổi đã diễn ra, buổi đã điểm danh, tỷ lệ có mặt, buổi 1-1, đánh giá, học viên không trùng', async () => {
     prisma.classSession.findMany.mockResolvedValue([
-      { groupClass: { coachId: COACH }, attendances: [{ status: 'PRESENT' }, { status: 'LATE' }, { status: 'ABSENT' }, { status: 'PRESENT' }] },
-      { groupClass: { coachId: COACH }, attendances: [] },
+      { coachId: COACH, coachAbsent: false, replacedCoachId: null, groupClass: { coachId: COACH }, attendances: [{ status: 'PRESENT' }, { status: 'LATE' }, { status: 'ABSENT' }, { status: 'PRESENT' }] },
+      { coachId: null, coachAbsent: false, replacedCoachId: null, groupClass: { coachId: COACH }, attendances: [] },
     ])
     prisma.privateCourseAttendance.groupBy.mockResolvedValue([{ markedById: COACH, _count: { _all: 5 } }])
     prisma.progressAssessment.groupBy.mockResolvedValue([{ coachId: COACH, _count: { _all: 2 } }])
@@ -117,7 +124,7 @@ describe('FR-65 Hiệu suất nhân sự', () => {
     expect(where.endsAt.gte.toISOString()).toBe('2026-09-30T17:00:00.000Z')
     // note: khoảng xem tới 31/10 nhưng hôm nay mới 15/10 → buổi chưa diễn ra không bị tính
     expect(where.endsAt.lt.toISOString()).toBe('2026-10-15T05:00:00.000Z')
-    expect(where.groupClass).toEqual({ coachId: { in: [COACH, 8] } })
+    expect(where.OR).toEqual([{ coachId: { in: [COACH, 8] } }, { coachId: null, groupClass: { coachId: { in: [COACH, 8] } } }])
   })
 
   it('Lễ tân: yêu cầu đã giải quyết + giờ trung bình, yêu cầu đang giữ, tiền thu tại quầy, hội viên tạo tại quầy', async () => {

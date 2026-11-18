@@ -5,6 +5,7 @@ const { prisma } = vi.hoisted(() => ({  notification: { createMany: vi.fn() },
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
+      createManyAndReturn: vi.fn(),
       update: vi.fn(),
     },
     privateCourseSchedule: { findFirst: vi.fn(), findMany: vi.fn() },
@@ -43,6 +44,7 @@ describe('FR-17–FR-20 Class session scheduling', () => {
     prisma.$transaction.mockImplementation(
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     )
+    prisma.classSession.createManyAndReturn.mockImplementation(async ({ data }) => data)
   })
   it('detects room overlap using strict interval overlap', async () => {
     prisma.classSession.findFirst.mockResolvedValue({ id: 2 })
@@ -203,7 +205,8 @@ describe('FR-17–FR-20 Class session scheduling', () => {
       '2026-11-15T03:00:00.000Z',
       '2026-11-22T03:00:00.000Z',
     ])
-    expect(prisma.classSession.create).toHaveBeenCalledTimes(4)
+    expect(prisma.classSession.createManyAndReturn).toHaveBeenCalledWith(expect.objectContaining({ data: expect.arrayContaining([expect.objectContaining({ classId: 1 })]) }))
+    expect(prisma.classSession.createManyAndReturn.mock.calls[0][0].data).toHaveLength(4)
     expect(prisma.$transaction).toHaveBeenCalledOnce()
   })
   it('previews multiple center-time patterns without persisting any session', async () => {

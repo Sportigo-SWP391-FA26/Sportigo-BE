@@ -63,6 +63,12 @@ model User {
   reviewedTimeClockAdjustments    TimeClockAdjustment[]            @relation("TimeClockAdjustmentReviewer")
   reviewedCoachAbsences           CoachAbsenceRequest[]            @relation("CoachAbsenceReviewer")
   reviewedPrivateCoachAbsences    PrivateCoachAbsenceRequest[]     @relation("PrivateAbsenceReviewer")
+  payrollCompensations            PayrollCompensation[]           @relation("PayrollCompensationStaff")
+  payrollRecurringItems           PayrollRecurringItem[]          @relation("PayrollRecurringStaff")
+  payrollEntries                  PayrollEntry[]                  @relation("PayrollEntryStaff")
+  payrollPeriodsCreated           PayrollPeriod[]                 @relation("PayrollPeriodCreator")
+  payrollPeriodsApproved          PayrollPeriod[]                 @relation("PayrollPeriodApprover")
+  payrollMakeupCredits             PayrollMakeupCredit[]
 
   @@index([roleId, status])
   @@index([deletedAt])
@@ -394,6 +400,97 @@ model StaffShift {
 
   @@index([staffId, startsAt])
   @@index([startsAt])
+}
+
+enum PayrollPeriodStatus {
+  DRAFT
+  APPROVED
+}
+
+enum PayrollItemKind {
+  ALLOWANCE
+  DEDUCTION
+}
+
+model PayrollCompensation {
+  id                 Int      @id @default(autoincrement())
+  staffId            Int
+  baseSalary         Decimal  @db.Decimal(14, 0)
+  effectiveFromMonth String   @db.VarChar(7)
+  effectiveToMonth   String?  @db.VarChar(7)
+  createdAt          DateTime @default(now())
+  staff              User     @relation("PayrollCompensationStaff", fields: [staffId], references: [id])
+
+  @@unique([staffId, effectiveFromMonth])
+  @@index([staffId, effectiveToMonth])
+}
+
+model PayrollRecurringItem {
+  id                 Int             @id @default(autoincrement())
+  staffId            Int
+  name               String          @db.VarChar(100)
+  kind               PayrollItemKind
+  amount             Decimal         @db.Decimal(14, 0)
+  effectiveFromMonth String          @db.VarChar(7)
+  effectiveToMonth   String?         @db.VarChar(7)
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  staff              User            @relation("PayrollRecurringStaff", fields: [staffId], references: [id])
+
+  @@index([staffId, effectiveFromMonth, effectiveToMonth])
+}
+
+model PayrollPeriod {
+  id           Int                 @id @default(autoincrement())
+  month        String              @unique @db.VarChar(7)
+  status       PayrollPeriodStatus @default(DRAFT)
+  createdById  Int
+  approvedById Int?
+  createdAt    DateTime            @default(now())
+  approvedAt   DateTime?
+  createdBy    User                @relation("PayrollPeriodCreator", fields: [createdById], references: [id])
+  approvedBy   User?               @relation("PayrollPeriodApprover", fields: [approvedById], references: [id])
+  entries      PayrollEntry[]
+}
+
+model PayrollEntry {
+  id                 Int           @id @default(autoincrement())
+  periodId           Int
+  staffId            Int
+  role               String        @db.VarChar(20)
+  staffName          String        @db.VarChar(100)
+  staffCode          String?       @db.VarChar(30)
+  baseSalary         Decimal       @db.Decimal(14, 0)
+  scheduledUnits     Int
+  absentUnits        Int
+  absenceDeduction   Decimal       @db.Decimal(14, 0)
+  makeupCredit       Decimal       @db.Decimal(14, 0)
+  allowanceTotal     Decimal       @db.Decimal(14, 0)
+  deductionTotal     Decimal       @db.Decimal(14, 0)
+  netAmount          Decimal       @db.Decimal(14, 0)
+  lineItems          Json
+  workEvidence       Json
+  reviewIssues       Json
+  makeupCredits      PayrollMakeupCredit[]
+  period             PayrollPeriod @relation(fields: [periodId], references: [id])
+  staff              User          @relation("PayrollEntryStaff", fields: [staffId], references: [id])
+
+  @@unique([periodId, staffId])
+  @@index([staffId, periodId])
+}
+
+model PayrollMakeupCredit {
+  id          Int          @id @default(autoincrement())
+  entryId     Int
+  staffId     Int
+  sourceKind  String       @db.VarChar(20)
+  sourceId    Int
+  amount      Decimal      @db.Decimal(14, 0)
+  entry       PayrollEntry @relation(fields: [entryId], references: [id])
+  staff       User         @relation(fields: [staffId], references: [id])
+
+  @@unique([sourceKind, sourceId])
+  @@index([staffId])
 }
 
 model CoachAbsenceRequest {

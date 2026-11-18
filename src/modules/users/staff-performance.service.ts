@@ -49,7 +49,8 @@ export async function getStaffPerformance(query: StaffPerformanceQuery, now = ne
   const attendanceTotal = new Map<number, number>()
   const attendancePresent = new Map<number, number>()
   for (const session of sessions) {
-    const coachId = session.groupClass.coachId
+    const coachId = session.coachId ?? session.groupClass.coachId
+    if (session.coachAbsent && session.replacedCoachId === null) continue
     bump(held, coachId)
     // note: buổi có ít nhất 1 bản ghi điểm danh = Coach đã điểm danh buổi đó
     if (session.attendances.length > 0) bump(marked, coachId)

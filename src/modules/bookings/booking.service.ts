@@ -274,10 +274,15 @@ export class BookingService {
       throw new HttpError(409, 'Lớp học đã bắt đầu diễn ra, không thể đăng ký mới.', 'CLASS_ALREADY_STARTED');
     }
 
-    const existingWaitlist = await prisma.classWaitlist.findUnique({
-      where: { memberId_classId: { memberId, classId } },
-      select: { status: true },
-    });
+    const [existingWaitlist, existingRegistration] = await Promise.all([
+      prisma.classWaitlist.findUnique({
+        where: { memberId_classId: { memberId, classId } },
+        select: { status: true },
+      }),
+      prisma.classRegistration.findUnique({
+        where: { memberId_classId: { memberId, classId } },
+      }),
+    ]);
     if (existingWaitlist && ['WAITING', 'OFFERED', 'ACCEPTED'].includes(existingWaitlist.status)) {
       throw new HttpError(409, 'Bạn đang có một vị trí hoạt động trong danh sách chờ lớp này.', 'ALREADY_WAITLISTED');
     }
@@ -289,10 +294,6 @@ export class BookingService {
     }
 
     // Ngăn chặn đăng ký trùng lặp (Member-class uniqueness)
-    const existingRegistration = await prisma.classRegistration.findUnique({
-      where: { memberId_classId: { memberId, classId } },
-    });
-
     if (existingRegistration) {
       if (existingRegistration.status === RegistrationStatus.CONFIRMED) {
         throw new HttpError(409, 'Bạn đã đăng ký thành công lớp học này rồi.', 'ALREADY_REGISTERED');
@@ -316,10 +317,6 @@ export class BookingService {
       if (lockedWaitlist && ['WAITING', 'OFFERED', 'ACCEPTED'].includes(lockedWaitlist.status)) {
         throw new HttpError(409, 'Bạn đang có một vị trí hoạt động trong danh sách chờ lớp này.', 'ALREADY_WAITLISTED');
       }
-      await waitlistService.offerNextInTransaction(tx, classId, now);
-      const activeOffer = await tx.classWaitlist.findFirst({
-        where: { classId, status: 'OFFERED', offerExpiresAt: { gt: now } },
-      });
       const lockedClass = await tx.groupClass.findUnique({
         where: { id: classId },
         include: {
@@ -332,9 +329,22 @@ export class BookingService {
               },
             },
           },
+          waitlists: {
+            where: { status: { in: ['WAITING', 'OFFERED'] } },
+            select: { id: true },
+            take: 1,
+          },
         },
       });
       if (!lockedClass) throw new HttpError(404, 'Lớp học không tồn tại trong hệ thống.', 'CLASS_NOT_FOUND');
+      // Không có ai đang chờ/mời: bỏ qua các truy vấn đối soát waitlist tốn nhiều round-trip.
+      let activeOffer = null;
+      if (lockedClass.waitlists?.length) {
+        await waitlistService.offerNextInTransaction(tx, classId, now);
+        activeOffer = await tx.classWaitlist.findFirst({
+          where: { classId, status: 'OFFERED', offerExpiresAt: { gt: now } },
+        });
+      }
       if (
         lockedClass.status !== ClassStatus.OPEN ||
         now < lockedClass.registrationOpenAt ||

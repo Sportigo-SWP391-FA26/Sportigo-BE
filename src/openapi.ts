@@ -11,6 +11,7 @@ import { uploadPaths } from './modules/uploads/upload.openapi.js'
 import { coachAvailabilityPaths } from './modules/coach-availability/coach-availability.openapi.js'
 import { membershipPaths } from './modules/memberships/membership.openapi.js'
 import { workforcePaths } from './modules/workforce/workforce.openapi.js' // note: FR-66/67
+import { payrollPaths } from './modules/payroll/payroll.openapi.js'
 
 export const openApiDocument = {
   openapi: '3.0.3',
@@ -47,6 +48,7 @@ export const openApiDocument = {
     { name: 'Coach Availability Review', description: 'Center Manager duyệt availability và yêu cầu đổi ca' },
     { name: 'Session Coach', description: 'Coach dạy thực tế từng buổi: dạy thay, coach vắng (FR-66)' },
     { name: 'Staff Shifts', description: 'Ca làm và chấm công lễ tân (FR-67)' },
+    { name: 'Payroll', description: 'Hiệu suất, cấu hình lương, kỳ lương và phiếu lương' },
   ],
   components: {
     securitySchemes: {
@@ -67,5 +69,6 @@ export const openApiDocument = {
     ...coachAvailabilityPaths,
     ...membershipPaths,
     ...workforcePaths,
+    ...payrollPaths,
   },
 } as const

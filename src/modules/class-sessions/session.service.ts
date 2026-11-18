@@ -1,6 +1,6 @@
 import { centerDateOnly, centerDateTime, centerDayOfWeek } from '../../lib/center-time.js'
 
-import { SessionStatus } from '@prisma/client'
+import { SessionStatus, type GroupClass, type Room } from '@prisma/client'
 import coachService from '../coaches/coach.service.js'
 import { HttpError } from '../../lib/http-error.js'
 import { prisma } from '../../lib/prisma.js'
@@ -49,6 +49,8 @@ type CreateSessionInput = {
   endsAt: string | Date
   note?: string
 }
+
+type SessionValidationContext = { groupClass: GroupClass; rooms: Map<number, Room | null> }
 
 type WeeklyRecurrenceInput = {
   dayOfWeek: number
@@ -295,7 +297,7 @@ export class SessionService {
   /**
    * FR-17: Tạo buổi học cho lớp nhóm.
    */
-  private async prepareSession(data: CreateSessionInput): Promise<PreparedSession> {
+  private async prepareSession(data: CreateSessionInput, context?: SessionValidationContext): Promise<PreparedSession> {
     const startsAt = new Date(data.startsAt)
     const endsAt = new Date(data.endsAt)
 
@@ -314,7 +316,7 @@ export class SessionService {
     }
 
     // Kiểm tra lớp học tồn tại.
-    const groupClass = await prisma.groupClass.findUnique({
+    const groupClass = context?.groupClass ?? await prisma.groupClass.findUnique({
       where: { id: data.classId },
     })
 
@@ -335,7 +337,7 @@ export class SessionService {
     }
 
     // Kiểm tra phòng tồn tại và khả dụng.
-    const room = await prisma.room.findUnique({
+    const room = context ? context.rooms.get(data.roomId) : await prisma.room.findUnique({
       where: { id: data.roomId },
     })
 
@@ -405,13 +407,23 @@ export class SessionService {
     })
   }
 
+  private async validationContext(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[]): Promise<SessionValidationContext> {
+    const groupClass = await prisma.groupClass.findUnique({ where: { id: classId } })
+    if (!groupClass) throw new HttpError(404, 'Không tìm thấy lớp học.', 'CLASS_NOT_FOUND')
+    const roomIds = [...new Set(sessions.map((session) => session.roomId))]
+    const rooms = await Promise.all(roomIds.map((roomId) => prisma.room.findUnique({ where: { id: roomId } })))
+    return { groupClass, rooms: new Map(roomIds.map((id, index) => [id, rooms[index] ?? null])) }
+  }
+
   async createSessions(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[], finalDate?: Date) {
     if (!Array.isArray(sessions) || sessions.length === 0) {
       throw new HttpError(400, 'Cần cung cấp ít nhất một buổi học.', 'SESSIONS_REQUIRED')
     }
     const prepared: PreparedSession[] = []
-    for (const session of sessions) {
-      prepared.push(await this.prepareSession({ ...session, classId }))
+    const context = await this.validationContext(classId, sessions)
+    // Mỗi buổi độc lập; tối đa 4 luồng để giảm round-trip tới Supabase mà không làm cạn pool 5 kết nối.
+    for (let start = 0; start < sessions.length; start += 4) {
+      prepared.push(...await Promise.all(sessions.slice(start, start + 4).map((session) => this.prepareSession({ ...session, classId }, context))))
     }
 
     for (let i = 0; i < prepared.length; i += 1) {
@@ -429,14 +441,11 @@ export class SessionService {
     }
 
     return prisma.$transaction(async (tx) => {
-      const created = []
-      for (const session of prepared) {
-        created.push(await tx.classSession.create({
-          data: { ...session, status: SessionStatus.SCHEDULED },
-        }))
-      }
+      const created = await tx.classSession.createManyAndReturn({
+        data: prepared.map((session) => ({ ...session, status: SessionStatus.SCHEDULED })),
+      })
       if (finalDate) await tx.groupClass.update({ where: { id: classId }, data: { endDate: finalDate } })
-      return created
+      return created.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
     })
   }
 
@@ -544,14 +553,18 @@ export class SessionService {
 
   private async previewPreparedSessions(classId: number, sessions: Omit<CreateSessionInput, 'classId'>[]) {
     const occurrences: Array<{ startsAt: string; endsAt: string; roomId: number; valid: boolean; code?: string; message?: string }> = []
-    for (const session of sessions) {
-      try {
-        await this.prepareSession({ ...session, classId })
-        occurrences.push({ startsAt: new Date(session.startsAt).toISOString(), endsAt: new Date(session.endsAt).toISOString(), roomId: session.roomId, valid: true })
-      } catch (error) {
-        if (!(error instanceof HttpError)) throw error
-        occurrences.push({ startsAt: new Date(session.startsAt).toISOString(), endsAt: new Date(session.endsAt).toISOString(), roomId: session.roomId, valid: false, code: error.code, message: error.message })
-      }
+    const context = await this.validationContext(classId, sessions)
+    for (let start = 0; start < sessions.length; start += 4) {
+      const batch = await Promise.all(sessions.slice(start, start + 4).map(async (session) => {
+        try {
+          await this.prepareSession({ ...session, classId }, context)
+          return { startsAt: new Date(session.startsAt).toISOString(), endsAt: new Date(session.endsAt).toISOString(), roomId: session.roomId, valid: true }
+        } catch (error) {
+          if (!(error instanceof HttpError)) throw error
+          return { startsAt: new Date(session.startsAt).toISOString(), endsAt: new Date(session.endsAt).toISOString(), roomId: session.roomId, valid: false, code: error.code, message: error.message }
+        }
+      }))
+      occurrences.push(...batch)
     }
     for (let i = 0; i < sessions.length; i += 1) {
       for (let j = i + 1; j < sessions.length; j += 1) {
