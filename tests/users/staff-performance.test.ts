@@ -164,4 +164,13 @@ describe('FR-65 Hiệu suất nhân sự', () => {
     expect(prisma.classSession.findMany).not.toHaveBeenCalled()
     expect(prisma.payment.groupBy).not.toHaveBeenCalled()
   })
+  it('không đưa nhân sự nhận việc sau kỳ báo cáo vào hiệu suất lịch sử', async () => {
+    prisma.user.findMany.mockResolvedValue([
+      { ...staffRows[0], coach: { ...staffRows[0].coach, hiredAt: new Date('2026-11-07T00:00:00Z') } },
+      { ...staffRows[2], receptionist: { ...staffRows[2].receptionist, hiredAt: new Date('2026-05-07T00:00:00Z') } },
+    ])
+    const response = await get('?from=2026-10-01&to=2026-10-31')
+    expect(response.body.coaches).toHaveLength(0)
+    expect(response.body.receptionists).toHaveLength(1)
+  })
 })

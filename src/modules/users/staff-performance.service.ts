@@ -24,7 +24,10 @@ const countMap = <K extends string>(rows: ({ _count: { _all: number } } & Record
 // FR-65: hiệu suất nhân sự trong khoảng thời gian; chỉ đọc dữ liệu có sẵn, không thêm bảng
 export async function getStaffPerformance(query: StaffPerformanceQuery, now = new Date()) {
   const range = toInstantRange(query)
-  const staff = await findStaffForPerformance()
+  const staff = (await findStaffForPerformance()).filter((user) => {
+    const hiredAt = user.role.name === 'COACH' ? user.coach?.hiredAt : user.receptionist?.hiredAt
+    return !hiredAt || hiredAt < range.endExclusive
+  })
   const coaches = staff.filter((user) => user.role.name === 'COACH')
   const receptionists = staff.filter((user) => user.role.name === 'RECEPTIONIST')
   const coachIds = coaches.map((user) => user.id)

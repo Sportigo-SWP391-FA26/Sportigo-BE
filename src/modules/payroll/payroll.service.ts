@@ -4,7 +4,7 @@ import { HttpError } from '../../lib/http-error.js'
 import { monthRange, monthSchema, type compensationSchema, type recurringItemSchema } from './payroll.schema.js'
 import { centerDateTime, wallClock } from '../../lib/center-time.js'
 import { audit } from '../../lib/audit.js'
-import { calculatePay } from './payroll.calc.js'
+import { calculatePay, employedByPeriodEnd } from './payroll.calc.js'
 import type { z } from 'zod'
 
 type CompensationInput = z.infer<typeof compensationSchema>
@@ -110,7 +110,12 @@ export async function buildPeriod(month: string, managerId: number, now = new Da
   if (range.endExclusive > now) throw new HttpError(409, 'Chỉ lập lương sau khi tháng đã kết thúc', 'PAYROLL_MONTH_NOT_FINISHED')
   const existing = await prisma.payrollPeriod.findUnique({ where: { month } })
   if (existing?.status === 'APPROVED') throw new HttpError(409, 'Bảng lương đã duyệt, không thể tính lại', 'PAYROLL_APPROVED')
-  const staff = await prisma.user.findMany({ where: { role: { name: { in: ['COACH', 'RECEPTIONIST'] } }, deletedAt: null }, include: { role: true, coach: true, receptionist: true, payrollCompensations: true, payrollRecurringItems: true } })
+  const staff = (await prisma.user.findMany({ where: { role: { name: { in: ['COACH', 'RECEPTIONIST'] } }, deletedAt: null }, include: { role: true, coach: true, receptionist: true, payrollCompensations: true, payrollRecurringItems: true } }))
+    .filter((user) => {
+      const hiredAt = user.role.name === 'COACH' ? user.coach?.hiredAt : user.receptionist?.hiredAt
+      // Hồ sơ nhân sự có thể được nhập lại sau này; dùng ngày nhận việc để lập kỳ lịch sử.
+      return employedByPeriodEnd(hiredAt, range.endExclusive)
+    })
   const coachIds = staff.filter((user) => user.role.name === 'COACH').map((user) => user.id)
   const receptionistIds = staff.filter((user) => user.role.name === 'RECEPTIONIST').map((user) => user.id)
   const [sessions, shifts, privateSchedules, groupAbsences, privateAbsences, priorCredits, approvedEntries, privateAttendances] = await Promise.all([
@@ -164,6 +169,7 @@ export async function buildPeriod(month: string, managerId: number, now = new Da
     const deductionTotal = items.filter((v) => v.kind === 'DEDUCTION').reduce((sum, v) => sum + money(v.amount), 0)
     const reviewIssues = [
       ...(!compensation ? ['Chưa cấu hình lương cơ bản'] : []),
+      ...(user.role.name === 'RECEPTIONIST' && ownShifts.length === 0 ? ['Chưa có dữ liệu ca làm lễ tân trong kỳ'] : []),
       ...ownSessions.filter((v) => v.status === 'SCHEDULED' || (v.status === 'COMPLETED' && !v.attendances.length)).map((v) => `Buổi nhóm #${v.id} chưa hoàn tất điểm danh`),
       ...ownPrivate.filter((v) => v.attendanceStatus !== 'CONFIRMED').map((v) => `Buổi 1-1 lịch #${v.scheduleId} ${v.startsAt.toISOString()}: ${v.attendanceStatus ?? 'chưa điểm danh'}`),
       ...ownShifts.flatMap((v) => v.adjustments.map(() => `Ca #${v.id} còn yêu cầu sửa chấm công`)),

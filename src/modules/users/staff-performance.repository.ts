@@ -19,8 +19,8 @@ export function findStaffForPerformance() {
       avatarUrl: true,
       status: true,
       role: { select: { name: true } },
-      coach: { select: { coachCode: true, status: true } },
-      receptionist: { select: { staffCode: true } },
+      coach: { select: { coachCode: true, status: true, hiredAt: true } },
+      receptionist: { select: { staffCode: true, hiredAt: true } },
     },
   })
 }

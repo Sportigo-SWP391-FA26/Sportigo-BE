@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculatePay } from '../../src/modules/payroll/payroll.calc.js'
+import { calculatePay, employedByPeriodEnd } from '../../src/modules/payroll/payroll.calc.js'
 import { monthRange } from '../../src/modules/payroll/payroll.schema.js'
 
 describe('Payroll monthly rules', () => {
@@ -16,5 +16,10 @@ describe('Payroll monthly rules', () => {
     const range = monthRange('2026-11')
     expect(range.start.toISOString()).toBe('2026-10-31T17:00:00.000Z')
     expect(range.endExclusive.toISOString()).toBe('2026-11-30T17:00:00.000Z')
+  })
+  it('excludes staff hired after the historical payroll period', () => {
+    const range = monthRange('2026-10')
+    expect(employedByPeriodEnd(new Date('2026-11-07T00:00:00.000Z'), range.endExclusive)).toBe(false)
+    expect(employedByPeriodEnd(new Date('2026-05-07T00:00:00.000Z'), range.endExclusive)).toBe(true)
   })
 })

@@ -1,5 +1,4 @@
 import { Router, type RequestHandler } from 'express'
-import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 import { resolve } from 'node:path'
 import { authenticate, authorize, getAuthUser } from '../../middleware/auth.js'
@@ -7,6 +6,7 @@ import { compensationSchema, monthSchema, recurringItemSchema } from './payroll.
 import * as service from './payroll.service.js'
 import { getStaffPerformance } from '../users/staff-performance.service.js'
 import { staffPerformanceQuerySchema } from '../users/staff-performance.schema.js'
+import { payrollWorkbook, performanceWorkbook } from './payroll.export.js'
 
 export const payrollRouter = Router()
 payrollRouter.use(authenticate)
@@ -47,34 +47,13 @@ payrollRouter.post('/periods/:month/build', manager, async (req, res) => { res.j
 payrollRouter.post('/periods/:month/approve', manager, async (req, res) => { res.json(await service.approvePeriod(monthSchema.parse(req.params.month), getAuthUser(req).id)) })
 
 const sendWorkbook: RequestHandler = async (req, res) => {
-  const workbook = new ExcelJS.Workbook()
-  if (req.path.startsWith('/performance')) {
-    const report = await getStaffPerformance(staffPerformanceQuerySchema.parse(req.query))
-    const coaches = workbook.addWorksheet('Hiệu suất Coach')
-    coaches.addRow(['Coach', 'Mã', 'Buổi nhóm', 'Buổi 1-1', 'Đánh giá', 'Học viên'])
-    report.coaches.forEach((v) => coaches.addRow([v.displayName, v.staffCode, v.groupSessionsHeld, v.privateSessions, v.assessments, v.activeTrainees]))
-    const reception = workbook.addWorksheet('Hiệu suất lễ tân')
-    reception.addRow(['Nhân sự', 'Mã', 'Yêu cầu xử lý', 'Tiền mặt thu', 'Hội viên mới'])
-    report.receptionists.forEach((v) => reception.addRow([v.displayName, v.staffCode, v.supportResolved, v.cashCollected, v.membersCreated]))
-  } else {
-    const period = await service.getPeriod(monthSchema.parse(req.params.month))
-    const sheet = workbook.addWorksheet('Bảng lương')
-    sheet.addRow(['Sportigo', `Bảng lương ${period.month}`, period.status])
-    sheet.addRow(['Nhân sự', 'Mã', 'Vai trò', 'Lương cơ bản', 'Ca dự kiến', 'Ca vắng', 'Trừ vắng', 'Bù ca', 'Phụ cấp', 'Khấu trừ', 'Thực nhận', 'Cần kiểm tra'])
-    period.entries.forEach((v) => sheet.addRow([v.staffName, v.staffCode, v.role, Number(v.baseSalary), v.scheduledUnits, v.absentUnits, Number(v.absenceDeduction), Number(v.makeupCredit), Number(v.allowanceTotal), Number(v.deductionTotal), Number(v.netAmount), (v.reviewIssues as string[]).join('; ')]))
-  }
-  workbook.eachSheet((sheet) => {
-    sheet.views = [{ state: 'frozen', ySplit: sheet.name === 'Bảng lương' ? 2 : 1 }]
-    sheet.columns.forEach((column) => { column.width = 22 })
-    sheet.getRow(sheet.name === 'Bảng lương' ? 2 : 1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    sheet.getRow(sheet.name === 'Bảng lương' ? 2 : 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1457C3' } }
-    sheet.autoFilter = { from: { row: sheet.name === 'Bảng lương' ? 2 : 1, column: 1 }, to: { row: sheet.name === 'Bảng lương' ? 2 : 1, column: sheet.columnCount } }
-    sheet.pageSetup.orientation = 'landscape'
-  })
+  const performance = req.path.startsWith('/performance')
+  const file = performance
+    ? await performanceWorkbook(await getStaffPerformance(staffPerformanceQuerySchema.parse(req.query)))
+    : await payrollWorkbook(await service.getPeriod(monthSchema.parse(req.params.month)))
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-  res.setHeader('Content-Disposition', `attachment; filename="Sportigo_${req.path.startsWith('/performance') ? 'Performance' : 'Payroll'}_${req.params.month ?? 'report'}.xlsx"`)
-  await workbook.xlsx.write(res)
-  res.end()
+  res.setHeader('Content-Disposition', `attachment; filename="Sportigo_${performance ? 'Performance' : 'Payroll'}_${req.params.month ?? 'report'}.xlsx"`)
+  res.send(file)
 }
 payrollRouter.get('/performance/export', manager, sendWorkbook)
 payrollRouter.get('/periods/:month/export', manager, sendWorkbook)
