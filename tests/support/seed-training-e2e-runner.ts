@@ -67,6 +67,44 @@ async function main() {
   }
 }
 
+// FR-52: đánh giá gắn với buổi đã kết thúc có điểm danh hợp lệ và chỉ số do Manager cấu hình.
+// Buổi 3 ngày trước nằm ngoài khối "Buổi dạy cần điểm danh" (hôm qua – hôm nay) nên không ảnh hưởng test khác.
+async function seedAssessableSession() {
+  const DAY = 24 * 60 * 60 * 1000;
+  const [groupClass, sport, member1, member2] = await Promise.all([
+    prisma.groupClass.findFirstOrThrow({ where: { name: 'Bơi cơ bản – lớp demo Training' } }),
+    prisma.sport.findUniqueOrThrow({ where: { name: 'Bơi lội' } }),
+    prisma.user.findUniqueOrThrow({ where: { email: 'member1.demo@sportcenter.local' } }),
+    prisma.user.findUniqueOrThrow({ where: { email: 'member2.demo@sportcenter.local' } }),
+  ]);
+  const room = await prisma.room.findUniqueOrThrow({ where: { code: 'DEMO-POOL-01' } });
+  const startsAt = new Date(Date.now() - 3 * DAY);
+  const session = await prisma.classSession.create({
+    data: {
+      classId: groupClass.id,
+      roomId: room.id,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 90 * 60 * 1000),
+      status: 'COMPLETED',
+      note: 'DEMO_TRAINING_DONE',
+    },
+  });
+  // Member 1 có mặt (được đánh giá), Member 2 vắng (không được đánh giá)
+  for (const [member, status] of [[member1, 'PRESENT'], [member2, 'ABSENT']] as const) {
+    const registration = await prisma.classRegistration.findUniqueOrThrow({
+      where: { memberId_classId: { memberId: member.id, classId: groupClass.id } },
+    });
+    await prisma.sessionAttendance.create({
+      data: { registrationId: registration.id, classSessionId: session.id, status, markedById: groupClass.coachId, checkedAt: startsAt },
+    });
+  }
+  await prisma.assessmentMetricDefinition.create({
+    data: { sportId: sport.id, code: 'TECHNIQUE', name: 'Kỹ thuật', unit: 'điểm', minValue: 0, maxValue: 10, isRequired: true, displayOrder: 1 },
+  });
+  console.log(`[test] Buổi đã kết thúc để đánh giá: id ${session.id}`);
+}
+
 main()
+  .then(seedAssessableSession)
   .then(() => console.log('[test] Training E2E fixture is ready in the isolated test database.'))
   .finally(() => prisma.$disconnect());
