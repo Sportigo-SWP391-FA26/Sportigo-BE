@@ -74,16 +74,17 @@ describe.skipIf(!hasTestDatabase)('Membership và check-in', () => {
     expect(await prisma.gymCheckIn.count({ where: { memberId: member.id } })).toBe(1)
   })
 
-  it('Manager và lễ tân xem lịch sử toàn trung tâm; Member chỉ xem lịch sử của mình', async () => {
+  it('chỉ lễ tân xem lịch sử toàn trung tâm; Manager không có tính năng check-in; Member chỉ xem lịch sử của mình', async () => {
     await buyAndPay()
     const checkedIn = await scan()
     expect(checkedIn.status).toBe(201)
 
-    for (const auth of [manager.auth, receptionist.auth]) {
-      const history = await request(app).get('/api/check-ins?page=1&limit=20').set('Authorization', auth)
-      expect(history.status).toBe(200)
-      expect(history.body.items.some((row: { id: number }) => row.id === checkedIn.body.id)).toBe(true)
-    }
+    const history = await request(app).get('/api/check-ins?page=1&limit=20').set('Authorization', receptionist.auth)
+    expect(history.status).toBe(200)
+    expect(history.body.items.some((row: { id: number }) => row.id === checkedIn.body.id)).toBe(true)
+
+    expect((await request(app).get('/api/check-ins').set('Authorization', manager.auth)).status).toBe(403)
+    expect((await request(app).post('/api/check-ins').set('Authorization', manager.auth).send({ memberCode, method: 'MANUAL' })).status).toBe(403)
 
     expect((await request(app).get('/api/check-ins').set('Authorization', member.auth)).status).toBe(403)
     const mine = await request(app).get('/api/members/me/check-ins?page=1&limit=20').set('Authorization', member.auth)

@@ -255,7 +255,10 @@ export const flow2Paths = {
     delete: operation('Private Courses', 'Ngừng Coach cung cấp khóa 1–1', { parameters: [id(), id('coachId')], responses: ok }),
   },
   '/private-courses/{id}/enroll': {
-    post: operation('Private Enrollments', 'Mua khóa 1–1 và chọn lịch tuần cố định', { parameters: [id()], responses: created }),
+    post: operation('Private Enrollments', 'Chọn Coach và ca tuần, tạo đơn khóa 1–1; phòng do hệ thống xếp', { parameters: [id()], requestBody: jsonBody(['coachId', 'startDate', 'schedules'], { coachId: { type: 'integer' }, startDate: { type: 'string', format: 'date' }, schedules: { type: 'array', items: { type: 'object', required: ['dayOfWeek', 'shiftCode'], properties: { dayOfWeek: { type: 'integer', minimum: 0, maximum: 6 }, shiftCode: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'] } } } } }), responses: created }),
+  },
+  '/private-courses/{id}/enroll/preview': {
+    post: operation('Private Enrollments', 'Xem trước đủ số buổi, kiểm tra lịch Coach và phòng trước khi đặt', { parameters: [id()], requestBody: jsonBody(['coachId', 'startDate', 'schedules'], { coachId: { type: 'integer' }, startDate: { type: 'string', format: 'date' }, schedules: { type: 'array', items: { type: 'object', required: ['dayOfWeek', 'shiftCode'], properties: { dayOfWeek: { type: 'integer', minimum: 0, maximum: 6 }, shiftCode: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'] } } } } }), responses: ok }),
   },
   '/private-courses/enrollments': {
     get: operation('Private Enrollments', 'Danh sách enrollment theo phạm vi role', { responses: ok }),

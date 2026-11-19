@@ -43,6 +43,7 @@ router.post(
   authorize('MEMBER'),
   privateController.createEnrollment,
 );
+router.post('/:id/enroll/preview', authenticate, authorize('MEMBER'), privateController.previewEnrollment);
 
 // Xem danh sách đăng ký: dữ liệu sẽ được lọc theo role trong service.
 router.get(

@@ -15,6 +15,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:flow": "tsx prisma/seed-flow-demo.ts",
+    "db:seed:demo-today": "tsx prisma/seed-demo-today.ts",
     "db:seed:manager": "tsx prisma/seed-manager-demo.ts",
     "db:seed:test-accounts": "tsx prisma/seed-test-accounts.ts",
     "test:seed:training-e2e": "tsx tests/support/seed-training-e2e-runner.ts"

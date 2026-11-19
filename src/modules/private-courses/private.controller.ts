@@ -2,6 +2,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import privateCourseService from './private.service.js';
 import { getAuthUser } from '../../middleware/auth.js';
+import { createShiftBooking, previewShiftBooking } from './private-booking.service.js';
 
 export class PrivateCourseController {
   async getCourse(
@@ -146,7 +147,14 @@ export class PrivateCourseController {
         return;
       }
 
-      const enrollment = await privateCourseService.createEnrollment({
+      const useShifts = schedules.length > 0 && schedules.every((slot: unknown) => typeof slot === 'object' && slot !== null && 'shiftCode' in slot);
+      if (useShifts && !schedules.every((slot: { dayOfWeek?: unknown; shiftCode?: unknown }) => Number.isInteger(slot.dayOfWeek) && typeof slot.shiftCode === 'string')) {
+        res.status(400).json({ success: false, message: 'Danh sách ca học không hợp lệ.' });
+        return;
+      }
+      const enrollment = useShifts ? await createShiftBooking({
+        memberId: user.id, coachId, privateCourseId, startDate, schedules: schedules as { dayOfWeek: number; shiftCode: string }[],
+      }) : await privateCourseService.createEnrollment({
         memberId: user.id,
         coachId,
         privateCourseId,
@@ -162,6 +170,24 @@ export class PrivateCourseController {
     } catch (error: unknown) {
       next(error);
     }
+  }
+
+  async previewEnrollment(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = getAuthUser(req);
+      const privateCourseId = Number(req.params.id);
+      const { coachId, startDate, schedules } = req.body;
+      if (!Number.isInteger(privateCourseId) || !Number.isInteger(coachId) || typeof startDate !== 'string' || !Array.isArray(schedules)) {
+        res.status(400).json({ success: false, message: 'Thông tin chọn lịch không hợp lệ.' });
+        return;
+      }
+      if (!schedules.every((slot: unknown) => typeof slot === 'object' && slot !== null && Number.isInteger((slot as { dayOfWeek?: unknown }).dayOfWeek) && typeof (slot as { shiftCode?: unknown }).shiftCode === 'string')) {
+        res.status(400).json({ success: false, message: 'Danh sách ca học không hợp lệ.' });
+        return;
+      }
+      const preview = await previewShiftBooking({ memberId: user.id, coachId, privateCourseId, startDate, schedules: schedules as { dayOfWeek: number; shiftCode: string }[] });
+      res.status(200).json({ success: true, data: preview });
+    } catch (error: unknown) { next(error); }
   }
 
   async getEnrollment(

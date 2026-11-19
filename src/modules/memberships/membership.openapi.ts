@@ -43,8 +43,9 @@ export const membershipPaths = {
     post: {
       tags, security, summary: 'Check-in phòng tập bằng mã QR hoặc mã thành viên',
       requestBody: json({ memberCode: { type: 'string', example: 'SG7K2P9X' }, method: { type: 'string', enum: ['QR', 'MANUAL'] } }),
-      responses: { '201': ok('Đã check-in'), '200': ok('Quét lặp trong 5 phút, trả lần trước'), '404': ok('MEMBER_NOT_FOUND'), '409': ok('ACCOUNT_INACTIVE hoặc NO_ACTIVE_MEMBERSHIP'), ...common },
+      description: 'Chỉ Receptionist được ghi nhận check-in tại quầy.',
+      responses: { ...common, '201': ok('Đã check-in'), '200': ok('Quét lặp trong 5 phút, trả lần trước'), '403': ok('Chỉ Receptionist được phép check-in'), '404': ok('MEMBER_NOT_FOUND'), '409': ok('ACCOUNT_INACTIVE hoặc NO_ACTIVE_MEMBERSHIP') },
     },
-    get: { tags, security, summary: 'Lượt check-in gần đây', responses: { '200': ok('Danh sách'), ...common } },
+    get: { tags, security, summary: 'Lượt check-in gần đây (Receptionist)', responses: { ...common, '200': ok('Danh sách'), '403': ok('Chỉ Receptionist được xem') } },
   },
 }

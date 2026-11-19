@@ -5,7 +5,7 @@ export const AVAILABILITY_RULES = {
   minimumDays: 5,
   minimumPerSelectedDay: 2,
   maximumPerDay: 4,
-  submitDeadlineDay: 25,
+  submitDeadlineDay: 28,
   resubmitDeadlineDay: 28,
 } as const
 

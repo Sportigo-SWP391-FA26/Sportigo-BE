@@ -4,7 +4,7 @@ import * as controller from './membership.controller.js'
 
 const memberOnly = [authenticate, authorize('MEMBER')]
 const managerOnly = [authenticate, authorize('CENTER_MANAGER')]
-const frontDesk = [authenticate, authorize('RECEPTIONIST', 'CENTER_MANAGER')]
+const frontDesk = [authenticate, authorize('RECEPTIONIST')]
 
 // Gắn ở gốc /api vì các đường dẫn thuộc nhiều nhóm tài nguyên
 export const membershipRouter = Router()

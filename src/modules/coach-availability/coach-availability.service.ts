@@ -60,7 +60,9 @@ function assertSubmissionWindow(month: Date, status: string, now = new Date()) {
   if (month.getTime() !== target.getTime()) {
     throw new HttpError(409, 'Chỉ được đăng ký availability cho tháng kế tiếp', 'MONTH_NOT_OPEN')
   }
-  const deadline = status === 'REJECTED' ? 28 : 25
+  const deadline = status === 'REJECTED'
+    ? AVAILABILITY_RULES.resubmitDeadlineDay
+    : AVAILABILITY_RULES.submitDeadlineDay
   if (centerDayOfMonth(now) > deadline) {
     throw new HttpError(409, `Đã quá hạn ngày ${deadline} để gửi lịch`, 'SUBMISSION_DEADLINE_PASSED')
   }
